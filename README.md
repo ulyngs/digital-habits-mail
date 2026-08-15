@@ -37,7 +37,7 @@ read it:
   stays on top of whatever else you are doing: just your conversation with
   that person or those people, with nothing else from the inbox in it. Reply
   from there, and put it back when you are done.
-- **Group by person, or by thread.** A switch, not a mode you are stuck in. In
+- **Group by person, or by thread.** In
   the by-person view, every new email from someone becomes another entry under
   them rather than a new thread, the way a messaging app does it, which removes
   most of the clutter.
