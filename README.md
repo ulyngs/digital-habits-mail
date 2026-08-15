@@ -9,9 +9,8 @@ Universities of Oxford, Maastricht, Copenhagen, and Santa Clara (see [digitalhab
 > **This is a snapshot of the latest release(s), not the development history.**
 >
 > The app is built in our private monorepo, as part of the project management
-> tools we use daily in our team. Every release is exported here whole, so one commit
-> is one version rather than one change — which is why there are so few of
-> them, and why none of them is small.
+> tools we use daily in our team. We export major releases here whole, so one commit
+> is one version rather than one change.
 >
 > It is published so the code can be read and checked. Issues are welcome; see
 > the note on pull requests at the end.
