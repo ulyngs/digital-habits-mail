@@ -30,10 +30,10 @@ read it:
 
 - **Threads read like a chat.** A conversation is laid out the way a messaging
   app lays one out, instead of as nested quoted replies.
-- **One-click focus.** Any part of the app opens as a distraction-free full
+- **One-click focus.** Any part of the app can be turned into a distraction-free full
   screen: only the thread you are reading, only the message you are writing,
   only the inbox.
-- **Pop a conversation out.** Any thread opens in its own small window that
+- **Pop a conversation out.** A thread can be popped out into an oldschool chat window that
   stays on top of whatever else you are doing: just your conversation with
   that person or those people, with nothing else from the inbox in it. Reply
   from there, and put it back when you are done.
