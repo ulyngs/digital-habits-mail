@@ -1,6 +1,6 @@
 # Digital Habits: Mail
 
-A minimalistic email client for people who find email overwhelming, designed
+A minimalistic email client for people who find email overwhelming. Designed
 with ADHD in mind. Developed by Centre for Digital Habits (digitalhabits.org;
 lead developer is Dr Ulrik Lyngs, ulrik@digitalhabits.org), in collaboration
 with computer scientists and human-computer interaction researchers at the
