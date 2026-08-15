@@ -6,10 +6,10 @@ lead developer is Dr Ulrik Lyngs, ulrik@digitalhabits.org), in collaboration
 with computer scientists and human-computer interaction researchers at the
 Universities of Oxford, Maastricht, Copenhagen, and Santa Clara (see [digitalhabits.org/story](https://digitalhabits.org/story)).
 
-> **This is a snapshot of each release, not the development history.**
+> **This is a snapshot of the latest release(s), not the development history.**
 >
 > The app is built in our private monorepo, as part of the project management
-> tools we use in our team. Every release is exported here whole, so one commit
+> tools we use daily in our team. Every release is exported here whole, so one commit
 > is one version rather than one change — which is why there are so few of
 > them, and why none of them is small.
 >
