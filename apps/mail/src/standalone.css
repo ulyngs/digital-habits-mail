@@ -1,0 +1,55 @@
+/* Window chrome for the standalone app. Tailwind and the brand variables come
+   from styles/globals.css, which this build imports too. What is left is the
+   full-height frame that the planner shell would otherwise provide. */
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+#root {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+/* The document under the interface. `main.tsx` copies the resolved theme here
+   so the window does not flash white before the shell paints. */
+html[data-theme="dark"],
+html[data-theme="dark"] body {
+  color-scheme: dark;
+  background: #14202c;
+  color: #f5f0e8;
+}
+
+/* The window has an overlay title bar: no system chrome, and the traffic
+   lights float over the page at (16, 21). Nothing is draggable unless the page
+   says so, which is why the window could not be moved.
+
+   The strip reserves that height rather than sitting over the content, so it
+   cannot swallow a click meant for the interface underneath. */
+.dh-titlebar {
+  flex: none;
+  height: 44px;
+  -webkit-app-region: drag;
+  app-region: drag;
+}
+
+/* A control inside the strip must still be clickable. */
+.dh-titlebar button,
+.dh-titlebar a,
+.dh-titlebar input,
+.dh-titlebar label {
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
+
+/* A popped-out thread. The window is transparent and the card inside draws its
+   own rounded edges and shadow, so the page behind it must paint nothing —
+   otherwise the card sits on an opaque rectangle with square corners. */
+html.dh-popout,
+html.dh-popout body,
+html.dh-popout #root {
+  background: transparent;
+}

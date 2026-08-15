@@ -1,0 +1,6 @@
+{
+  "name": "@redd/mail",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Shared mail client: components, provider APIs, and inbox logic consumed by apps/mail (standalone) and the plan app's Mail tab. Resolved via each app's @/* tsconfig path fallback; app-specific seams (lib/auth, lib/plan CRM, components/ui) come from the importing app."
+}

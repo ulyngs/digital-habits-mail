@@ -1,0 +1,396 @@
+/**
+ * Local-only mail composer drafts (IndexedDB). Not synced with Gmail/Outlook.
+ * Survives refresh / tab close until send, explicit discard, or ~90 days idle.
+ */
+
+import type { MailRecipient } from "@/lib/mail/contact-list-types";
+import { htmlToPlainText } from "@/lib/client-email-html";
+import { newMailId } from "@/lib/mail/uuid";
+
+const DB_NAME = "redd-plan-mail-drafts";
+const DB_VERSION = 1;
+const STORE = "drafts";
+
+/** Drop drafts that haven't been edited for this long (editing resets the clock). */
+export const DRAFT_MAX_IDLE_MS = 90 * 24 * 60 * 60 * 1000;
+
+export type ThreadComposerMode = "reply" | "replyAll" | "forward";
+
+/** Serializable attachment slice (matches ready DraftAttachment rows). */
+export type DraftAttachmentSnapshot = {
+  id: string;
+  filename: string;
+  mimeType: string;
+  size: number;
+  progress: null;
+  contentBase64: string;
+};
+
+type DraftBase = {
+  key: string;
+  updatedAt: number;
+  /** Ready attachments only (with contentBase64). */
+  attachments: DraftAttachmentSnapshot[];
+};
+
+export type ThreadMailDraft = DraftBase & {
+  kind: "thread";
+  account: string;
+  threadId: string;
+  mode: ThreadComposerMode;
+  body: string;
+  toList: MailRecipient[];
+  ccList: MailRecipient[];
+  showCc: boolean;
+  editRecipients: boolean;
+  includeSignature: boolean;
+  fromAccount: string;
+  replyFocus: boolean;
+  /**
+   * Where the caret was in the body, counted from the start.
+   *
+   * Carried so a message handed back from a pop-out opens in the place it
+   * was left, rather than at one end of itself. Absent on a draft saved
+   * before this existed, and on one nobody was in the middle of.
+   */
+  caret?: number;
+};
+
+export type ComposeMailDraft = DraftBase & {
+  kind: "compose";
+  from: string;
+  subject: string;
+  body: string;
+  toList: MailRecipient[];
+  ccList: MailRecipient[];
+  bccList: MailRecipient[];
+  showCc: boolean;
+  showBcc: boolean;
+  includeSignature: boolean;
+  chatStyle: boolean;
+};
+
+export type MailDraft = ThreadMailDraft | ComposeMailDraft;
+
+export function threadDraftKey(account: string, threadId: string): string {
+  return `thread:${account}:${threadId}`;
+}
+
+/**
+ * The key a new-message draft used to have — all of them, which is why there
+ * was only ever one. Still read, so a draft written before this change is not
+ * lost, but nothing writes to it any more.
+ */
+export const COMPOSE_DRAFT_KEY = "compose";
+
+/** A key of its own for each new message being written. */
+export function composeDraftKey(id: string): string {
+  return `compose:${id}`;
+}
+
+export function newComposeDraftKey(): string {
+  return composeDraftKey(newMailId());
+}
+
+export function isComposeDraftKey(key: string): boolean {
+  return key === COMPOSE_DRAFT_KEY || key.startsWith("compose:");
+}
+
+/** In-memory index of thread draft keys for list badges. */
+const threadDraftKeys = new Set<string>();
+const draftListeners = new Set<() => void>();
+let keysLoaded = false;
+let keysLoadPromise: Promise<void> | null = null;
+/** Stable snapshot for useSyncExternalStore. */
+let threadDraftKeysSnapshot: ReadonlySet<string> = new Set();
+
+function rebuildThreadDraftKeysSnapshot(): void {
+  threadDraftKeysSnapshot = new Set(threadDraftKeys);
+}
+
+function notifyDraftListeners(): void {
+  rebuildThreadDraftKeysSnapshot();
+  for (const listener of draftListeners) listener();
+}
+
+function rememberThreadDraftKey(key: string, present: boolean): void {
+  if (!key.startsWith("thread:")) return;
+  const had = threadDraftKeys.has(key);
+  if (present && !had) {
+    threadDraftKeys.add(key);
+    notifyDraftListeners();
+  } else if (!present && had) {
+    threadDraftKeys.delete(key);
+    notifyDraftListeners();
+  }
+}
+
+function txDone(tx: IDBTransaction): Promise<void> {
+  return new Promise((resolve, reject) => {
+    tx.oncomplete = () => resolve();
+    tx.onerror = () =>
+      reject(tx.error ?? new Error("IndexedDB transaction failed"));
+    tx.onabort = () =>
+      reject(tx.error ?? new Error("IndexedDB transaction aborted"));
+  });
+}
+
+/**
+ * Delete drafts whose updatedAt is older than DRAFT_MAX_IDLE_MS, then refresh
+ * the in-memory thread-key index used by list badges.
+ */
+async function loadAndPruneDrafts(): Promise<void> {
+  try {
+    const db = await openDb();
+    try {
+      const cutoff = Date.now() - DRAFT_MAX_IDLE_MS;
+      const tx = db.transaction(STORE, "readwrite");
+      const store = tx.objectStore(STORE);
+      const all = await idbRequest<MailDraft[]>(store.getAll());
+      const nextKeys = new Set<string>();
+      for (const draft of all) {
+        if (!draft || typeof draft.key !== "string") continue;
+        const updatedAt =
+          typeof draft.updatedAt === "number" ? draft.updatedAt : 0;
+        if (updatedAt < cutoff) {
+          store.delete(draft.key);
+          continue;
+        }
+        if (draft.key.startsWith("thread:")) {
+          nextKeys.add(draft.key);
+        }
+      }
+      await txDone(tx);
+      threadDraftKeys.clear();
+      for (const key of nextKeys) threadDraftKeys.add(key);
+    } finally {
+      db.close();
+    }
+  } catch {
+    /* ignore */
+  }
+  keysLoaded = true;
+  notifyDraftListeners();
+}
+
+function ensureThreadDraftKeysLoaded(): void {
+  if (keysLoaded || keysLoadPromise) return;
+  keysLoadPromise = loadAndPruneDrafts().finally(() => {
+    keysLoadPromise = null;
+  });
+}
+
+/** Quiet prune + badge index refresh (safe to call from Mail mount). */
+export function pruneExpiredMailDrafts(): void {
+  ensureThreadDraftKeysLoaded();
+}
+
+export function subscribeMailDrafts(onStoreChange: () => void): () => void {
+  draftListeners.add(onStoreChange);
+  ensureThreadDraftKeysLoaded();
+  return () => {
+    draftListeners.delete(onStoreChange);
+  };
+}
+
+export function getThreadDraftKeysSnapshot(): ReadonlySet<string> {
+  return threadDraftKeysSnapshot;
+}
+
+export function hasThreadDraft(account: string, threadId: string): boolean {
+  return threadDraftKeys.has(threadDraftKey(account, threadId));
+}
+
+function openDb(): Promise<IDBDatabase> {
+  return new Promise((resolve, reject) => {
+    if (typeof indexedDB === "undefined") {
+      reject(new Error("IndexedDB unavailable"));
+      return;
+    }
+    const req = indexedDB.open(DB_NAME, DB_VERSION);
+    req.onupgradeneeded = () => {
+      const db = req.result;
+      if (!db.objectStoreNames.contains(STORE)) {
+        db.createObjectStore(STORE, { keyPath: "key" });
+      }
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () =>
+      reject(req.error ?? new Error("Couldn't open drafts database"));
+  });
+}
+
+function idbRequest<T>(req: IDBRequest<T>): Promise<T> {
+  return new Promise((resolve, reject) => {
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () =>
+      reject(req.error ?? new Error("IndexedDB request failed"));
+  });
+}
+
+export async function getDraft(key: string): Promise<MailDraft | null> {
+  try {
+    const db = await openDb();
+    try {
+      const tx = db.transaction(STORE, "readonly");
+      const raw = await idbRequest<MailDraft | undefined>(
+        tx.objectStore(STORE).get(key)
+      );
+      if (!raw) return null;
+      const updatedAt =
+        typeof raw.updatedAt === "number" ? raw.updatedAt : 0;
+      if (updatedAt < Date.now() - DRAFT_MAX_IDLE_MS) {
+        // Stale — drop it (deleteDraft also updates the badge index).
+        void deleteDraft(key);
+        return null;
+      }
+      return raw;
+    } finally {
+      db.close();
+    }
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Every draft we hold, newest first.
+ *
+ * The Drafts view needs this. Expired ones are dropped on the way out rather
+ * than shown and then vanishing when they are next opened.
+ */
+export async function listMailDrafts(): Promise<MailDraft[]> {
+  try {
+    const db = await openDb();
+    try {
+      const tx = db.transaction(STORE, "readonly");
+      const rows = await idbRequest<MailDraft[]>(
+        tx.objectStore(STORE).getAll()
+      );
+      const cutoff = Date.now() - DRAFT_MAX_IDLE_MS;
+      return (rows ?? [])
+        .filter((row) => (row?.updatedAt ?? 0) >= cutoff)
+        .sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0));
+    } finally {
+      db.close();
+    }
+  } catch {
+    return [];
+  }
+}
+
+export async function setDraft(draft: MailDraft): Promise<void> {
+  try {
+    const db = await openDb();
+    try {
+      const tx = db.transaction(STORE, "readwrite");
+      await idbRequest(
+        tx.objectStore(STORE).put({ ...draft, updatedAt: Date.now() })
+      );
+    } finally {
+      db.close();
+    }
+    if (draft.kind === "thread") {
+      rememberThreadDraftKey(draft.key, true);
+    }
+  } catch {
+    /* private mode / quota — drafts are best-effort */
+  }
+}
+
+export async function deleteDraft(key: string): Promise<void> {
+  try {
+    const db = await openDb();
+    try {
+      const tx = db.transaction(STORE, "readwrite");
+      await idbRequest(tx.objectStore(STORE).delete(key));
+    } finally {
+      db.close();
+    }
+    rememberThreadDraftKey(key, false);
+  } catch {
+    /* ignore */
+  }
+}
+
+/** Persist only attachments that already have base64 (skip in-progress reads). */
+export function readyAttachmentsForDraft(
+  items: Array<{
+    id: string;
+    filename: string;
+    mimeType: string;
+    size: number;
+    contentBase64?: string;
+    error?: string;
+  }>
+): DraftAttachmentSnapshot[] {
+  return items
+    .filter((a): a is typeof a & { contentBase64: string } =>
+      Boolean(a.contentBase64 && !a.error)
+    )
+    .map((a) => ({
+      id: a.id,
+      filename: a.filename,
+      mimeType: a.mimeType,
+      size: a.size,
+      progress: null,
+      contentBase64: a.contentBase64,
+    }));
+}
+
+function recipientsSignature(list: MailRecipient[]): string {
+  return JSON.stringify(list);
+}
+
+export function isThreadDraftEmpty(
+  draft: Omit<ThreadMailDraft, "key" | "updatedAt" | "kind">,
+  defaultTo: MailRecipient[],
+  defaultCc: MailRecipient[]
+): boolean {
+  if (htmlToPlainText(draft.body).trim()) return false;
+  if (draft.attachments.length) return false;
+  if (recipientsSignature(draft.toList) !== recipientsSignature(defaultTo)) {
+    return false;
+  }
+  if (recipientsSignature(draft.ccList) !== recipientsSignature(defaultCc)) {
+    return false;
+  }
+  return true;
+}
+
+export function isComposeDraftEmpty(
+  draft: Omit<ComposeMailDraft, "key" | "updatedAt" | "kind">
+): boolean {
+  if (htmlToPlainText(draft.body).trim()) return false;
+  if (draft.subject.trim()) return false;
+  if (draft.attachments.length) return false;
+  if (draft.toList.length || draft.ccList.length || draft.bccList.length) {
+    return false;
+  }
+  return true;
+}
+
+/** Upsert or delete a thread draft depending on whether it still has content. */
+export async function saveThreadDraft(
+  draft: Omit<ThreadMailDraft, "updatedAt">,
+  defaultTo: MailRecipient[],
+  defaultCc: MailRecipient[]
+): Promise<void> {
+  const { key, kind: _kind, ...rest } = draft;
+  if (isThreadDraftEmpty(rest, defaultTo, defaultCc)) {
+    await deleteDraft(key);
+    return;
+  }
+  await setDraft({ ...draft, updatedAt: Date.now() });
+}
+
+export async function saveComposeDraft(
+  draft: Omit<ComposeMailDraft, "updatedAt">
+): Promise<void> {
+  const { key, kind: _kind, ...rest } = draft;
+  if (isComposeDraftEmpty(rest)) {
+    await deleteDraft(key);
+    return;
+  }
+  await setDraft({ ...draft, updatedAt: Date.now() });
+}
