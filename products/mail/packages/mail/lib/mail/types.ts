@@ -58,6 +58,18 @@ export type MailThreadSummary = {
    * same way the unified server list does.
    */
   tipId?: string;
+  /**
+   * The same message, in other mailboxes of ours.
+   *
+   * A row is one conversation as far as the reader can see, and when the
+   * mail behind it arrived in two of their mailboxes the list shows one row
+   * (see dedupeThreadsByTip). Whatever is done to the row has to be done to
+   * every copy: delete one and the other quietly takes the row's place, the
+   * same subject in the same spot, and the reader deletes it again — which
+   * by then is the next conversation along. Client-side only; the server
+   * never sets it.
+   */
+  alsoIn?: { account: string; threadId: string }[];
 };
 
 /** File attachment on a received message (bytes fetched on demand). */

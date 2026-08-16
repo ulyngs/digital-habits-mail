@@ -193,6 +193,11 @@ import {
 } from "@/lib/page-snapshot-cache";
 import { Popover, PopoverTrigger } from "@/components/ui/popover";
 import { MailPopoverContent } from "@/components/mail/MailPopoverContent";
+import {
+  dedupeThreadsByTip,
+  everyCopy,
+  threadKey,
+} from "@/lib/mail/thread-copies";
 import { MailShortcutsDialog } from "@/components/mail/MailShortcutsDialog";
 import {
   SettingsGroup,
@@ -655,7 +660,11 @@ function MailLayoutMenu({
          * The title and the Done button sit outside the scrolling part, so
          * both stay put however long the middle gets.
          */
-        className="flex max-h-[var(--radix-popover-content-available-height)] w-96 flex-col overflow-hidden p-0"
+        // Radix measures that gap in window pixels. Under the CSS-zoom
+        // fallback the panel lays out in zoomed ones, so the gap is divided
+        // by the zoom; in the desktop app the variable is unset and it
+        // divides by one.
+        className="flex max-h-[calc(var(--radix-popover-content-available-height)/var(--mail-css-zoom,1))] w-96 flex-col overflow-hidden p-0"
         collisionPadding={12}
         onCloseAutoFocus={(e) => e.preventDefault()}
       >
@@ -1448,51 +1457,6 @@ function outlookOauthHref(email?: string): string {
 
 
 
-function threadKey(t: { account: string; threadId: string }): string {
-  return `${t.account}|${t.threadId}`;
-}
-
-/**
- * Collapse cc'd copies of the same conversation across mailboxes, mirroring
- * the server's unified dedupe: newest-first, first copy wins the row, any
- * copy being unread / carrying an invite marks the kept row.
- */
-function dedupeThreadsByTip(rows: MailThreadSummary[]): MailThreadSummary[] {
-  const sorted = [...rows].sort(
-    (a, b) => Date.parse(b.lastAt) - Date.parse(a.lastAt)
-  );
-  const indexByKey = new Map<string, number>();
-  const out: MailThreadSummary[] = [];
-  for (const t of sorted) {
-    const key = t.tipId || threadKey(t);
-    const index = indexByKey.get(key);
-    if (index == null) {
-      indexByKey.set(key, out.length);
-      out.push(t);
-      continue;
-    }
-    const kept = out[index];
-    const unread = kept.unread || t.unread;
-    const hasCalendarInvite = kept.hasCalendarInvite || t.hasCalendarInvite;
-    const hasAttachments = kept.hasAttachments || t.hasAttachments;
-    const calendarInviteWhen = kept.calendarInviteWhen ?? t.calendarInviteWhen;
-    if (
-      unread !== kept.unread ||
-      hasCalendarInvite !== kept.hasCalendarInvite ||
-      hasAttachments !== kept.hasAttachments ||
-      calendarInviteWhen !== kept.calendarInviteWhen
-    ) {
-      out[index] = {
-        ...kept,
-        unread,
-        hasCalendarInvite,
-        hasAttachments,
-        calendarInviteWhen,
-      };
-    }
-  }
-  return out;
-}
 
 /**
  * The list cursor is a base64url JSON map of account → provider page token
@@ -4017,7 +3981,8 @@ export function MailPage({
   // the inbox's row count, and stuck there for ninety seconds.
 
   const removeThread = React.useCallback(
-    (key: string) => {
+    /** `alsoKeys`: copies of the same mail in other mailboxes, gone with it. */
+    (key: string, alsoKeys: string[] = []) => {
       /**
        * Where to go next, worked out before the row is gone.
        *
@@ -4054,7 +4019,8 @@ export function MailPage({
       // The row is gone from this list. It is gone from the others too, and
       // those are cached in storage with no expiry — so a folder or a search
       // the reader comes back to later would paint it again.
-      forgetThreadEverywhere(viewerId, (t) => threadKey(t) === key);
+      const gone = new Set([key, ...alsoKeys]);
+      forgetThreadEverywhere(viewerId, (t) => gone.has(threadKey(t)));
       setSelected((current) => {
         if (!current || threadKey(current) !== key) return current;
         // With a person digest open, fall back to it — the successor thread
@@ -4158,16 +4124,22 @@ export function MailPage({
           });
           toast.success(mailSay("snoozeCancelled"));
         } else {
-          await apiJson(
-            undo.kind === "trash" ? "/api/mail/untrash" : "/api/mail/unarchive",
-            {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                account: undo.summary.account,
-                threadId: undo.summary.threadId,
-              }),
-            }
+          // Every copy that went — the row's own and the ones folded into
+          // it — comes back, or the row would return as one of them and the
+          // rest would stay wherever they were sent.
+          await Promise.all(
+            everyCopy(undo.summary, [undo.summary]).map((c) =>
+              apiJson(
+                undo.kind === "trash"
+                  ? "/api/mail/untrash"
+                  : "/api/mail/unarchive",
+                {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify(c),
+                }
+              )
+            )
           );
           toast.success(
             mailSay(
@@ -4345,14 +4317,21 @@ export function MailPage({
       const before = threads;
       const summary = threads.find((x) => threadKey(x) === key);
       const provider = isOutlookAccount(t.account) ? "Outlook" : "Gmail";
-      removeThread(key);
-      hideRemovedRows([key]);
+      // Every copy behind the row — the same reason as in `trash`.
+      const copies = everyCopy(t, threads);
+      const keys = copies.map(threadKey);
+      removeThread(key, keys);
+      hideRemovedRows(keys);
       try {
-        await apiJson("/api/mail/archive", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(t),
-        });
+        await Promise.all(
+          copies.map((c) =>
+            apiJson("/api/mail/archive", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(c),
+            })
+          )
+        );
         if (summary) {
           pushMailUndo(
             "archive",
@@ -4363,7 +4342,7 @@ export function MailPage({
           toast(mailSay("archivedIn", { provider }));
         }
       } catch (err) {
-        unhideRows([key]);
+        unhideRows(keys);
         setThreads(before);
         toast.error(err instanceof Error ? err.message : "Couldn't archive");
       }
@@ -4572,17 +4551,36 @@ export function MailPage({
       const before = threads;
       const summary = threads.find((x) => threadKey(x) === key);
       const provider = isOutlookAccount(t.account) ? "Outlook" : "Gmail";
+      /*
+        Every copy, not the one the row happens to stand for.
+
+        A mail that arrived in two of the reader's mailboxes is one row —
+        see dedupeThreadsByTip. Deleting only the row's own copy left the
+        other one to take the row's place on the next refresh, the same
+        subject in the same spot, so it read as though nothing had happened
+        and the reader deleted again. By then the selection had moved to
+        the next conversation, so what went the second time was a mail
+        they had never meant to touch.
+      */
+      const copies = everyCopy(t, threads);
+      const keys = copies.map(threadKey);
       // Trash removes the conversation — drop pin + body cache with it.
-      unpinMailThread(t.account, t.threadId);
-      invalidateCachedMailThread(t.account, t.threadId);
-      removeThread(key);
-      hideRemovedRows([key]);
+      for (const c of copies) {
+        unpinMailThread(c.account, c.threadId);
+        invalidateCachedMailThread(c.account, c.threadId);
+      }
+      removeThread(key, keys);
+      hideRemovedRows(keys);
       try {
-        await apiJson("/api/mail/trash", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(t),
-        });
+        await Promise.all(
+          copies.map((c) =>
+            apiJson("/api/mail/trash", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(c),
+            })
+          )
+        );
         // Neither provider counts a deleted conversation in a folder.
         noteLeftOpenFolder(t.account);
         if (summary) {
@@ -4597,7 +4595,7 @@ export function MailPage({
           toast(`Conversation moved to Trash in ${provider}`);
         }
       } catch (err) {
-        unhideRows([key]);
+        unhideRows(keys);
         setThreads(before);
         toast.error(err instanceof Error ? err.message : "Couldn't delete");
       }
@@ -4656,16 +4654,23 @@ export function MailPage({
     async (t: { account: string; threadId: string }, junk: boolean) => {
       const key = threadKey(t);
       const before = threads;
-      invalidateCachedMailThread(t.account, t.threadId);
-      removeThread(key);
-      if (junk) hideRemovedRows([key]);
+      // Every copy behind the row — the same reason as in `trash`.
+      const copies = everyCopy(t, threads);
+      const keys = copies.map(threadKey);
+      for (const c of copies) invalidateCachedMailThread(c.account, c.threadId);
+      removeThread(key, keys);
+      if (junk) hideRemovedRows(keys);
       setSelected(null);
       try {
-        await apiJson(junk ? "/api/mail/junk" : "/api/mail/not-junk", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(t),
-        });
+        await Promise.all(
+          copies.map((c) =>
+            apiJson(junk ? "/api/mail/junk" : "/api/mail/not-junk", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(c),
+            })
+          )
+        );
         // Junk is out of every folder search, the same as Trash. Taking one
         // back out of Junk happens in the Junk view, where no folder is open.
         if (junk) noteLeftOpenFolder(t.account);
@@ -4673,7 +4678,7 @@ export function MailPage({
           mailSay(junk ? "movedToJunk" : "movedBackToTheInbox")
         );
       } catch (err) {
-        unhideRows([key]);
+        unhideRows(keys);
         setThreads(before);
         toast.error(
           err instanceof Error
@@ -6074,7 +6079,10 @@ export function MailPage({
   return (
     <div
       ref={mailSurfaceRef}
-      className="mail-shell flex h-dvh min-h-0 flex-1 flex-col overflow-hidden bg-[var(--mail-chrome)]"
+      // The window's height in the app's own pixels — see use-ui-scale.
+      // `h-dvh` is not scaled by zoom, so at any size but 100% it was
+      // taller than the window it sat in.
+      className="mail-shell flex h-[var(--mail-viewport-h,100dvh)] min-h-0 flex-1 flex-col overflow-hidden bg-[var(--mail-chrome)]"
       data-theme={colorMode}
       style={
         {
@@ -7209,7 +7217,8 @@ export function MailPage({
               focusMode={listCollapsed}
               onToggleFocus={() => setListCollapsed((v) => !v)}
               onArchive={() => void archive(selected)}
-              onTrash={() => void trash(selected)}
+              // The pane names what it shows; that, and nothing else, goes.
+              onTrash={(shown) => void trash(shown)}
               inTrash={tab === "trash"}
               onRestore={() => void restoreFromTrash(selected)}
               inJunk={tab === "junk"}

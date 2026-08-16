@@ -13,6 +13,7 @@ import * as React from "react";
 import { formatShortcut, shortcutMatchesEvent } from "@/lib/mail/shortcuts";
 import { useMailShortcuts } from "@/lib/mail/use-mail-shortcuts";
 import {
+  Check,
   ChevronDown,
   Maximize2,
   Minimize2,
@@ -857,57 +858,7 @@ export function ComposeView({
                 />
               </div>
               <div className="flex flex-wrap items-center gap-3">
-                {!chatStyle ? (
-                  <SignatureMetaControls
-                    account={from}
-                    configured={Boolean(sigSettings?.signature)}
-                    included={includeSignature}
-                    className="text-[15px] text-stone-500"
-                    onAdd={() => {
-                      sigTouchedRef.current = true;
-                      if (sigSettings?.signature) setIncludeSignature(true);
-                      else setSigDialogOpen(true);
-                    }}
-                    onEdit={() => setSigDialogOpen(true)}
-                    onRemove={() => {
-                      sigTouchedRef.current = true;
-                      setIncludeSignature(false);
-                    }}
-                  />
-                ) : null}
-                {!chatStyle ? (
-                  <button
-                    type="button"
-                    className="text-[15px] text-stone-500 underline-offset-2 hover:text-stone-800 hover:underline"
-                    onClick={() => setShowPreview(true)}
-                  >
-                    {t("preview")}
-                  </button>
-                ) : null}
                 <span className="ml-auto flex items-start gap-3">
-                  <label className="flex cursor-pointer items-start gap-1.5 text-sm text-stone-700">
-                    <input
-                      type="checkbox"
-                      className="mt-0.5 rounded border-stone-300 accent-teal-700 focus:ring-teal-600"
-                      checked={chatStyle}
-                      onChange={(e) => {
-                        const on = e.target.checked;
-                        setChatStyle(on);
-                        if (on) {
-                          sigTouchedRef.current = true;
-                          setIncludeSignature(false);
-                        }
-                      }}
-                    />
-                    <span className="flex flex-col leading-tight">
-                      <span className="text-xs font-normal">
-                        {t("chatStyle")}
-                      </span>
-                      <span className="text-xs text-stone-500">
-                        {t("doesNotQuoteHistory")}
-                      </span>
-                    </span>
-                  </label>
                   <button
                     type="button"
                     title={t("discard")}
@@ -920,7 +871,6 @@ export function ComposeView({
                 </span>
               </div>
             </div>
-
           {/* Edge / corner handles for resizing the card. */}
           <div
             role="separator"
@@ -945,6 +895,66 @@ export function ComposeView({
             onPointerDown={startCardResize("se")}
             className="absolute bottom-0 right-0 z-10 h-4 w-4 cursor-nwse-resize touch-none"
           />
+          </div>
+          {/* Under the box, outside the card — where a reply keeps them.
+              A signature to write and the mail as it will land both open
+              something over the whole pane, and neither is part of writing
+              the message; the chat-style question is about what the mail
+              is, not about typing it. In the footer they sat among the
+              buttons that are, on a row already full. */}
+          <div className="mt-1.5 flex flex-wrap items-center gap-3">
+            {!chatStyle ? (
+              <SignatureMetaControls
+                account={from}
+                configured={Boolean(sigSettings?.signature)}
+                included={includeSignature}
+                onAdd={() => {
+                  sigTouchedRef.current = true;
+                  if (sigSettings?.signature) setIncludeSignature(true);
+                  else setSigDialogOpen(true);
+                }}
+                onEdit={() => setSigDialogOpen(true)}
+                onRemove={() => {
+                  sigTouchedRef.current = true;
+                  setIncludeSignature(false);
+                }}
+              />
+            ) : null}
+            {!chatStyle ? (
+              <button
+                type="button"
+                className="text-xs text-stone-500 underline-offset-2 hover:text-stone-800 hover:underline"
+                onClick={() => setShowPreview(true)}
+              >
+                {t("preview")}
+              </button>
+            ) : null}
+            {/* The drawn box the reply uses, not an accented one: a filled
+                teal square would be the loudest thing on a line of quiet
+                grey. Both colours are turned over by the dark theme. */}
+            <label className="flex cursor-pointer items-center gap-1.5 text-xs text-stone-500 hover:text-stone-800">
+              <span className="relative inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center">
+                <input
+                  type="checkbox"
+                  className="peer h-3.5 w-3.5 appearance-none rounded-[3px] border border-stone-300 bg-white outline-none checked:border-stone-400 focus-visible:ring-2 focus-visible:ring-teal-600/40"
+                  checked={chatStyle}
+                  onChange={(e) => {
+                    const on = e.target.checked;
+                    setChatStyle(on);
+                    if (on) {
+                      sigTouchedRef.current = true;
+                      setIncludeSignature(false);
+                    }
+                  }}
+                />
+                <Check
+                  aria-hidden
+                  className="pointer-events-none absolute h-3 w-3 text-stone-700 opacity-0 peer-checked:opacity-100"
+                />
+              </span>
+              {t("chatStyle")}
+              <span className="text-stone-400">{t("doesNotQuoteHistory")}</span>
+            </label>
           </div>
         </div>
 

@@ -448,7 +448,10 @@ export function SettingsDialog({
         aria-modal="true"
         aria-labelledby={titleId}
         className={cn(
-          "relative flex max-h-[88vh] max-w-full flex-col overflow-hidden rounded-2xl bg-white shadow-xl",
+          // 88% of the window in the app's own pixels — vh is not scaled by
+          // the app's zoom, and at 120% the foot of the panel was below the
+          // sill of the window.
+          "relative flex max-h-[calc(var(--mail-viewport-h,100dvh)*0.88)] max-w-full flex-col overflow-hidden rounded-2xl bg-white shadow-xl",
           width
         )}
       >

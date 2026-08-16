@@ -509,7 +509,16 @@ export function ThreadPane({
   focusMode: boolean;
   onToggleFocus: () => void;
   onArchive: () => void;
-  onTrash: () => void;
+  /**
+   * Handed the thread this pane is showing, by account and id.
+   *
+   * The pane knows what it shows — those are its own props — and the
+   * parent knows what it thinks is selected. They are the same by
+   * construction, and a delete is the one action where "by construction"
+   * is not enough: it acts on whatever it is given, and the reader has no
+   * way back from a wrong guess. So the pane says which.
+   */
+  onTrash: (thread: { account: string; threadId: string }) => void;
   /** Put a deleted thread back. Only reachable from the Trash view. */
   onRestore?: () => void;
   /** True when this thread was opened from Trash — it is already deleted. */
@@ -2412,7 +2421,7 @@ export function ThreadPane({
         case "delete":
           // Nothing to delete when it is already deleted, and the key must
           // not quietly mean something else in this one view.
-          if (!inTrash) onTrash();
+          if (!inTrash) onTrash({ account, threadId });
           break;
         case "toggleUnread":
           onToggleUnread();
@@ -4000,7 +4009,7 @@ export function ThreadPane({
                 shortcuts.delete
               )})`}
               icon={Trash2}
-              onClick={onTrash}
+              onClick={() => onTrash({ account, threadId })}
             />
           )}
           <span

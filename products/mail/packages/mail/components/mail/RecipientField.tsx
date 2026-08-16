@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Clock, Users, X } from "lucide-react";
+import { Clock, SquarePen, Users, X } from "lucide-react";
 import { toast } from "sonner";
 
 import {
@@ -596,7 +596,9 @@ function EditListPanel({
           className="min-w-0 flex-1 rounded-lg border border-stone-200 px-2.5 py-1.5 text-sm font-semibold text-stone-900 outline-none focus:border-teal-600"
         />
         <span className="shrink-0 text-xs text-stone-400">
-          {members.length} people
+          {members.length === 1
+            ? t("onePersonCount")
+            : t("peopleCount", { count: members.length })}
         </span>
       </div>
       <ul className="mt-3 max-h-48 space-y-1 overflow-y-auto">
@@ -689,6 +691,12 @@ function EditListPanel({
               }
             }}
             placeholder={t("addPerson")}
+            // Names and addresses: the Mac's own suggestions stand down
+            // here for the same reason they do in the To field.
+            autoComplete="off"
+            autoCorrect="off"
+            autoCapitalize="off"
+            spellCheck={false}
             className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-stone-400"
           />
         </div>
@@ -954,6 +962,395 @@ function ListChip({
             }}
           />
         )}
+      </MailPopoverContent>
+    </Popover>
+  );
+}
+
+/**
+ * One list, open for editing, in the place the menu was.
+ *
+ * A list could only be edited from a chip: you had to put it into a message
+ * first, open it, and press Edit — three steps, and the first one leaves
+ * something in a message you may not be writing. The pencils in the
+ * suggestions and in the lists menu both come here instead.
+ *
+ * It takes the same spot under the field the suggestions use, so the menu
+ * you pressed the pencil in becomes the thing you pressed it for, rather
+ * than a second panel over the top of the first.
+ */
+function ListEditorCard({
+  list,
+  contacts,
+  above,
+  maxHeight,
+  onClose,
+  onSaved,
+  onDeleted,
+}: {
+  list: MailContactList;
+  contacts: ContactSuggestion[];
+  above: boolean;
+  maxHeight: number;
+  onClose: () => void;
+  onSaved: (list: MailContactList) => void;
+  onDeleted: (listId: string) => void;
+}) {
+  const [name, setName] = React.useState(list.name);
+  const [members, setMembers] = React.useState<MailContactListMember[]>(
+    list.members
+  );
+  const [addDraft, setAddDraft] = React.useState("");
+  const [saving, setSaving] = React.useState(false);
+  const cardRef = React.useRef<HTMLDivElement | null>(null);
+
+  // A second pencil, on a different list, without closing the first.
+  React.useEffect(() => {
+    setName(list.name);
+    setMembers(list.members);
+    setAddDraft("");
+  }, [list.id, list.name, list.members]);
+
+  /*
+    A way out that is not "Done" and not "Delete list".
+
+    Both of those do something to the list, and a reader who opened the
+    wrong one, or came to look rather than to change, needs neither. Click
+    away or press Escape, same as the menu this replaced — and the edits
+    are dropped, because nothing has been sent until Done.
+  */
+  React.useEffect(() => {
+    const onPointerDown = (event: PointerEvent) => {
+      if (saving) return;
+      if (!cardRef.current?.contains(event.target as Node)) onClose();
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || saving) return;
+      event.stopPropagation();
+      onClose();
+    };
+    document.addEventListener("pointerdown", onPointerDown, true);
+    document.addEventListener("keydown", onKeyDown, true);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown, true);
+      document.removeEventListener("keydown", onKeyDown, true);
+    };
+  }, [onClose, saving]);
+
+  return (
+    <div
+      ref={cardRef}
+      className={cn(
+        "absolute left-0 right-0 z-30 overflow-y-auto rounded-lg border border-stone-200 bg-white p-3 shadow-lg",
+        above ? "bottom-full mb-1" : "top-full mt-1"
+      )}
+      style={{ maxHeight }}
+      // The field's own blur would otherwise commit whatever was typed and
+      // shut the menu the moment a name here is clicked into.
+      onMouseDown={(e) => e.stopPropagation()}
+    >
+      <EditListPanel
+        name={name}
+        setName={setName}
+        members={members}
+        setMembers={setMembers}
+        addDraft={addDraft}
+        setAddDraft={setAddDraft}
+        contacts={contacts}
+        saving={saving}
+        onDone={async () => {
+          setSaving(true);
+          try {
+            const json = await apiJson<{ list: MailContactList }>(
+              "/api/mail/contact-lists",
+              {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  id: list.id,
+                  name: name.trim(),
+                  members,
+                }),
+              }
+            );
+            await refreshLists();
+            // The store answers with the list it kept; without one there is
+            // nothing to copy onto the chips, and closing is still right.
+            if (json.list) onSaved(json.list);
+            onClose();
+            toast.success(mailSay("listUpdated"));
+          } catch (err) {
+            toast.error(
+              err instanceof Error ? err.message : mailSay("couldNotUpdateList")
+            );
+          } finally {
+            setSaving(false);
+          }
+        }}
+        onDelete={async () => {
+          if (!window.confirm(mailSay("deleteListNamed", { name: list.name }))) {
+            return;
+          }
+          setSaving(true);
+          try {
+            await apiJson(
+              `/api/mail/contact-lists?id=${encodeURIComponent(list.id)}`,
+              { method: "DELETE" }
+            );
+            await refreshLists();
+            onDeleted(list.id);
+            onClose();
+            toast.success(mailSay("listDeleted"));
+          } catch (err) {
+            toast.error(
+              err instanceof Error ? err.message : mailSay("couldNotDeleteList")
+            );
+          } finally {
+            setSaving(false);
+          }
+        }}
+      />
+    </div>
+  );
+}
+
+/**
+ * Every list you have, at the end of the field.
+ *
+ * A list could only be found by typing the first letters of its name, which
+ * works when you remember it and not at all otherwise — and a reader who
+ * has just made one has no reason to think it is in there. So: a button,
+ * the lists behind it, and the same pencil on each.
+ */
+function ListsMenu({
+  lists,
+  onPick,
+  onEdit,
+}: {
+  lists: MailContactList[];
+  onPick: (list: MailContactList) => void;
+  onEdit: (list: MailContactList) => void;
+}) {
+  const t = useMailT();
+  const [open, setOpen] = React.useState(false);
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          aria-label={t("yourLists")}
+          title={t("yourLists")}
+          className={cn(
+            "ml-auto shrink-0 rounded-md p-1 text-stone-400 transition-colors hover:bg-stone-100 hover:text-stone-700",
+            open && "bg-stone-100 text-stone-700"
+          )}
+        >
+          <Users className="h-4 w-4" aria-hidden />
+        </button>
+      </PopoverTrigger>
+      <MailPopoverContent align="end" className="w-64 p-1">
+        <p className="px-2 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-stone-400">
+          {t("yourLists")}
+        </p>
+        {lists.map((list) => (
+          <div
+            key={list.id}
+            className="group flex items-center rounded-md hover:bg-stone-100"
+          >
+            <button
+              type="button"
+              className="flex min-w-0 flex-1 items-center gap-2.5 py-1.5 pl-2 text-left"
+              onClick={() => {
+                setOpen(false);
+                onPick(list);
+              }}
+            >
+              <span className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-teal-600 text-white">
+                <Users className="h-3.5 w-3.5" aria-hidden />
+              </span>
+              <span className="min-w-0">
+                <span className="block truncate text-sm font-medium text-stone-900">
+                  {list.name}
+                </span>
+                <span className="block text-xs text-stone-500">
+                  {listSubtitle(t, list.members.length)}
+                </span>
+              </span>
+            </button>
+            <EditListButton
+              className="mr-1 text-stone-400 hover:text-stone-700"
+              onEdit={() => {
+                setOpen(false);
+                onEdit(list);
+              }}
+            />
+          </div>
+        ))}
+      </MailPopoverContent>
+    </Popover>
+  );
+}
+
+/** The little pencil that opens a list for editing. */
+function EditListButton({
+  onEdit,
+  className,
+}: {
+  onEdit: () => void;
+  className?: string;
+}) {
+  const t = useMailT();
+  return (
+    <button
+      type="button"
+      aria-label={t("editList")}
+      title={t("editList")}
+      // mousedown, and stopped: the field is watching for a blur, and a
+      // click that lands after one arrives at a closed menu.
+      onMouseDown={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        onEdit();
+      }}
+      className={cn(
+        "shrink-0 rounded-md p-1 opacity-0 transition-opacity hover:bg-black/10 group-hover:opacity-100 focus-visible:opacity-100",
+        className
+      )}
+    >
+      <SquarePen className="h-3.5 w-3.5" aria-hidden />
+    </button>
+  );
+}
+
+/** How a list says what it is, under its name. */
+function listSubtitle(t: ReturnType<typeof useMailT>, count: number): string {
+  return count === 1
+    ? t("listOnePerson")
+    : t("listPeopleCount", { count });
+}
+
+/**
+ * One person in a field, and who they actually are.
+ *
+ * The chip says the name when it has one, which is what you want while
+ * writing and no help at all when you are checking. Two people share a
+ * first name, an old address for the right person is still the wrong
+ * address, and a name typed by a sender is not a name anybody verified.
+ * Double-click and the chip says the address instead — with where the name
+ * came from, and a way to take a copy.
+ *
+ * Double-click rather than a click or a hover: a click selects the chip
+ * (that is how several are cut or deleted at once), and a tooltip cannot
+ * be copied from, which is most of the reason for looking.
+ */
+function EmailChip({
+  recipient,
+  contacts,
+  variant,
+  selected,
+  onSelect,
+  onRemove,
+}: {
+  recipient: Extract<MailRecipient, { kind: "email" }>;
+  contacts: ContactSuggestion[];
+  variant: "boxed" | "inline";
+  selected: boolean;
+  onSelect: (e: React.MouseEvent) => void;
+  onRemove: () => void;
+}) {
+  const t = useMailT();
+  const [open, setOpen] = React.useState(false);
+  const label = recipient.name || recipient.email;
+  const known = contacts.find(
+    (c) => c.email.trim().toLowerCase() === recipient.email.trim().toLowerCase()
+  );
+  const badge = known ? contactSourceBadge(known) : null;
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <span
+          className={cn(
+            "inline-flex cursor-pointer items-center gap-1 rounded-full bg-cream-section py-0.5 pl-2 pr-1 text-stone-700",
+            variant === "inline"
+              ? "text-[13px]"
+              : // Block flow in a boxed field, so the spacing a flex gap
+                // gave is carried by the chips themselves.
+                "mb-1 mr-1.5 align-middle text-xs",
+            selected && "ring-2 ring-teal-600 ring-offset-1"
+          )}
+          title={recipient.name ? recipient.email : undefined}
+          aria-selected={selected}
+          onMouseDown={(e) => {
+            if ((e.target as HTMLElement).closest("[data-chip-remove]")) return;
+            e.preventDefault();
+            onSelect(e);
+          }}
+          onDoubleClick={(e) => {
+            e.preventDefault();
+            setOpen(true);
+          }}
+        >
+          {label}
+          <button
+            type="button"
+            data-chip-remove
+            aria-label={t("removeNamed", { name: label })}
+            title={t("removeNamed", { name: label })}
+            className="rounded-full px-1 text-stone-400 hover:text-red-700"
+            onClick={onRemove}
+          >
+            ×
+          </button>
+        </span>
+      </PopoverTrigger>
+      <MailPopoverContent align="start" className="w-72 p-3">
+        {recipient.name ? (
+          <p className="text-sm font-semibold text-stone-900">
+            {recipient.name}
+          </p>
+        ) : null}
+        {/* Selectable, and wrapped rather than cut: an address you cannot
+            read the end of is the one thing this panel is for. */}
+        <p className="mt-0.5 select-text break-all text-sm text-stone-700">
+          {recipient.email}
+        </p>
+        {badge ? (
+          <span
+            className={cn(
+              "mt-2 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide",
+              provenanceBadgeClass(known!.source)
+            )}
+          >
+            {known!.source === "mac" ? <AppleMark /> : null}
+            {t(badge)}
+          </span>
+        ) : null}
+        <div className="mt-3 flex items-center gap-3 border-t border-stone-100 pt-2.5">
+          <button
+            type="button"
+            className="text-sm text-teal-700 hover:underline"
+            onClick={() => {
+              void copyTextToClipboard(recipient.email).then((ok) =>
+                ok
+                  ? toast.success(mailSay("copied"))
+                  : toast.error(mailSay("couldNotCopy"))
+              );
+            }}
+          >
+            {t("copyAddress")}
+          </button>
+          <button
+            type="button"
+            className="text-sm text-stone-500 hover:text-red-700"
+            onClick={() => {
+              setOpen(false);
+              onRemove();
+            }}
+          >
+            {t("remove")}
+          </button>
+        </div>
       </MailPopoverContent>
     </Popover>
   );
@@ -1379,6 +1776,24 @@ export function RecipientField({
 
   const listItems = menu.filter((i) => i.kind === "list");
   const contactItems = menu.filter((i) => i.kind === "contact");
+  /** The list the pencil was pressed on, from wherever it was pressed. */
+  const [editingList, setEditingList] = React.useState<MailContactList | null>(
+    null
+  );
+  const openListEditor = (list: MailContactList) => {
+    cancelBlurTimer();
+    // Whatever was half-typed is not an address, and committing it on the
+    // way out would leave a chip nobody asked for behind the editor.
+    setDraft("");
+    setMenuOpen(false);
+    setEditingList(list);
+  };
+  // A list edited elsewhere, or deleted, must not stay open on the old copy.
+  React.useEffect(() => {
+    if (!editingList) return;
+    const fresh = lists.find((l) => l.id === editingList.id);
+    if (!fresh) setEditingList(null);
+  }, [lists, editingList]);
 
   /**
    * How much of the menu there is room for, and which way it opens.
@@ -1390,9 +1805,11 @@ export function RecipientField({
   const [menuBox, setMenuBox] = React.useState({
     above: false,
     maxHeight: 288,
+    /** The whole drop, before the menu's own cap — the editor wants more. */
+    room: 288,
   });
   React.useEffect(() => {
-    if (!showMenu) return;
+    if (!showMenu && !editingList) return;
     const measure = () => {
       const el = fieldElRef.current;
       if (!el) return;
@@ -1403,15 +1820,17 @@ export function RecipientField({
       // Downwards by default, which is where a reader expects it. Upwards
       // only when there is really no room and more of it the other way.
       const flip = below < 200 && above > below;
+      const drop = flip ? above : below;
       setMenuBox({
         above: flip,
-        maxHeight: Math.max(140, Math.min(288, flip ? above : below)),
+        maxHeight: Math.max(140, Math.min(288, drop)),
+        room: Math.max(140, drop),
       });
     };
     measure();
     window.addEventListener("resize", measure);
     return () => window.removeEventListener("resize", measure);
-  }, [showMenu]);
+  }, [showMenu, editingList]);
 
   /**
    * The chips actually drawn, and how many are folded away.
@@ -1511,44 +1930,19 @@ export function RecipientField({
               />
             );
           }
-          const labelText = value.name || value.email;
           return (
-            <span
+            <EmailChip
               key={recipientKey(value)}
-              className={cn(
-                "inline-flex cursor-pointer items-center gap-1 rounded-full bg-cream-section py-0.5 pl-2 pr-1 text-stone-700",
-                variant === "inline"
-                  ? "text-[13px]"
-                  : // Block flow in a boxed field, so the spacing a flex gap
-                    // gave is carried by the chips themselves.
-                    "mb-1 mr-1.5 align-middle text-xs",
-                isSelected && "ring-2 ring-teal-600 ring-offset-1"
-              )}
-              title={value.name ? value.email : undefined}
-              aria-selected={isSelected}
-              onMouseDown={(e) => {
-                if ((e.target as HTMLElement).closest("[data-chip-remove]")) {
-                  return;
-                }
-                e.preventDefault();
-                handleChipSelect(index, e);
+              recipient={value}
+              contacts={contacts}
+              variant={variant}
+              selected={isSelected}
+              onSelect={(e) => handleChipSelect(index, e)}
+              onRemove={() => {
+                clearChipSelection();
+                onChange(values.filter((_, i) => i !== index));
               }}
-            >
-              {labelText}
-              <button
-                type="button"
-                data-chip-remove
-                aria-label={`Remove ${labelText}`}
-                title={`Remove ${labelText}`}
-                className="rounded-full px-1 text-stone-400 hover:text-red-700"
-                onClick={() => {
-                  clearChipSelection();
-                  onChange(values.filter((_, i) => i !== index));
-                }}
-              >
-                ×
-              </button>
-            </span>
+            />
           );
         })}
         {folding ? (
@@ -1563,7 +1957,7 @@ export function RecipientField({
               focusDraftInput();
             }}
           >
-            and {foldedCount} more
+            {t("andMoreCount", { count: foldedCount })}
           </button>
         ) : null}
         <input
@@ -1723,12 +2117,64 @@ export function RecipientField({
               ? "py-0.5 text-[15px] text-stone-800"
               : "py-0.5 text-sm"
           )}
+          /*
+            The Mac's own suggestions, switched off in this one box.
+
+            Type "peter" and macOS put up its own bubble — "Peter", with a
+            cross — to capitalise it, and while that bubble was up the down
+            arrow went to it and not to the list underneath. The list is
+            the suggestion here: this box holds names and addresses, which
+            are neither misspelled nor in want of a capital, and the keys
+            have to reach the app's list on the first press. Spellcheck and
+            autocapitalize off with it, since each is a way for the system
+            to take the keys.
+          */
           autoComplete="off"
+          autoCorrect="off"
+          autoCapitalize="off"
+          spellCheck={false}
           role="combobox"
           aria-expanded={showMenu}
           aria-autocomplete="list"
         />
-        {showMenu ? (
+        {lists.length ? (
+          <ListsMenu
+            lists={lists}
+            onPick={(list) => pickItem({ kind: "list", list })}
+            onEdit={openListEditor}
+          />
+        ) : null}
+        {editingList ? (
+          <ListEditorCard
+            list={editingList}
+            contacts={contacts}
+            above={menuBox.above}
+            /*
+              Taller than the suggestions are allowed to be. A name, the
+              people, a box to add one and two buttons come to a little
+              over their 288 — at which the row holding "Done" fell below
+              the fold of a panel nobody expected to scroll.
+            */
+            maxHeight={Math.min(440, menuBox.room)}
+            onClose={() => setEditingList(null)}
+            onSaved={(saved) => {
+              // A list already in this message follows the edit.
+              onChange(
+                values.map((v) =>
+                  v.kind === "list" && v.listId === saved.id
+                    ? { ...v, name: saved.name, members: saved.members }
+                    : v
+                )
+              );
+            }}
+            onDeleted={(listId) => {
+              onChange(
+                values.filter((v) => !(v.kind === "list" && v.listId === listId))
+              );
+            }}
+          />
+        ) : null}
+        {showMenu && !editingList ? (
           <ul
             role="listbox"
             className={cn(
@@ -1749,14 +2195,18 @@ export function RecipientField({
                       key={item.list.id}
                       role="option"
                       aria-selected={i === highlight}
+                      /* The row is a button and the pencil is a button, so
+                         the two cannot nest — the pencil rides alongside,
+                         on a row that is the hover group. */
+                      className={cn(
+                        "group flex items-center",
+                        i === highlight ? HIGHLIGHT_ROW : "hover:bg-stone-50"
+                      )}
+                      onMouseEnter={() => setHighlight(i)}
                     >
                       <button
                         type="button"
-                        className={cn(
-                          "flex w-full items-center gap-2.5 px-3 py-2 text-left",
-                          i === highlight ? HIGHLIGHT_ROW : "hover:bg-stone-50"
-                        )}
-                        onMouseEnter={() => setHighlight(i)}
+                        className="flex min-w-0 flex-1 items-center gap-2.5 py-2 pl-3 text-left"
                         onMouseDown={(e) => {
                           e.preventDefault();
                           pickItem(item);
@@ -1784,10 +2234,19 @@ export function RecipientField({
                                 : "text-stone-500"
                             )}
                           >
-                            List · {item.list.members.length} people
+                            {listSubtitle(t, item.list.members.length)}
                           </span>
                         </span>
                       </button>
+                      <EditListButton
+                        onEdit={() => openListEditor(item.list)}
+                        className={cn(
+                          "mr-2",
+                          i === highlight
+                            ? "text-[var(--mail-chrome-pinned-fg)] opacity-70 hover:bg-white/15"
+                            : "text-stone-400 hover:text-stone-700"
+                        )}
+                      />
                     </li>
                   );
                 })}

@@ -780,8 +780,23 @@ function measureEmailFrameHeight(doc: Document): number {
     el = el.lastElementChild;
   }
 
+  /*
+    And whatever the frame says it can scroll.
+
+    The rect walk above measures boxes; `scrollHeight` measures the whole
+    of what is laid out, zoom included, and it is the exact quantity that
+    decides whether a scrollbar appears. Taking the larger of the two is
+    what keeps one from appearing: the rect walk catches trailing margins
+    that scrollHeight rounds off, and scrollHeight catches everything the
+    rect walk cannot see — which, at any zoom but 100%, was the message.
+  */
+  const scrolled = Math.max(
+    doc.documentElement?.scrollHeight ?? 0,
+    body.scrollHeight ?? 0
+  );
+
   // Slack for sub-pixels and collapsed margins so the footer never clips.
-  return Math.max(0, Math.ceil(bottom - bodyTop + 6));
+  return Math.max(0, Math.ceil(Math.max(bottom - bodyTop, scrolled) + 6));
 }
 
 /** Window events that re-emit pinch gestures happening inside email iframes. */
@@ -1418,8 +1433,32 @@ export function EmailHtmlView({
     const doc = iframeRef.current?.contentDocument;
     if (!doc?.body) return;
     doc.body.style.zoom = String(zoom);
-    const next = measureEmailFrameHeight(doc);
-    if (next > 0) setHeight(next);
+    /*
+      Measured again once the frame has laid out at the new size.
+
+      Reading the rect in the same tick as the zoom hands back the geometry
+      from before it, so the frame kept a height the words no longer fit
+      in — and, since the frame scrolls as a fallback, the message got a
+      scrollbar of its own inside the bubble. Nothing in here should ever
+      scroll: the thread does that.
+
+      Twice over, because a picture or a table can settle a frame later
+      than the first one after the change.
+    */
+    const apply = () => {
+      const next = measureEmailFrameHeight(doc);
+      if (next > 0) setHeight(next);
+    };
+    apply();
+    let second = 0;
+    const first = requestAnimationFrame(() => {
+      apply();
+      second = requestAnimationFrame(apply);
+    });
+    return () => {
+      cancelAnimationFrame(first);
+      if (second) cancelAnimationFrame(second);
+    };
   }, [zoom]);
 
   return (

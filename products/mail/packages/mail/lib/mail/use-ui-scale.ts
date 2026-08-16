@@ -9,6 +9,7 @@
 
 import * as React from "react";
 
+import { tauriInvoke } from "@/lib/mail/store/tauri";
 import {
   MAIL_UI_SCALE_EVENT,
   readUiScale,
@@ -42,23 +43,88 @@ export function useUiScale(): [number, (value: number) => void] {
 /**
  * Draw the whole app at the reader's size.
  *
- * On the document, not on `.mail-shell`: every menu in this app is a Radix
- * portal hung on `<body>`, outside the shell — the same reason
- * MailPopoverContent has to copy the shell class over to reach them with
- * the theme. A size set on the shell would leave every menu at 100%, and
- * leave Radix measuring a trigger in one scale and placing a menu in
- * another. The document is the one element above both.
+ * Two ways, and which one is not a matter of taste.
  *
- * Cleared on the way out, so the planner keeps its own size when the mail
- * page is not the page being read.
+ * In the desktop app the webview has a page zoom of its own — the same
+ * thing Cmd-+ does in Safari — and that is what is used. The browser
+ * rescales the CSS pixel itself, so `100vh` is still the window, a menu's
+ * position is still where its button is, and nothing in the app has to know
+ * the number. The first version of this used CSS `zoom` on the document
+ * instead, and it looked right at a glance and was wrong in two ways at
+ * once: the shell was told to be `100vh` tall, which zoom does not scale,
+ * so at 120% it hung a fifth below the sill; and every popover was placed
+ * by a library that measured in one pixel space and painted in another, so
+ * the settings panel opened to the right of its button and its foot was
+ * off the screen. What each engine returns under CSS zoom differs, and
+ * there is no version of the arithmetic that is right in all of them.
+ *
+ * In a browser — the demo, the planner's mail page — there is no page zoom
+ * to ask for, so CSS zoom is what there is, with the height corrected by
+ * hand. Menus there may sit a little off at sizes other than 100%. A reader
+ * in a browser has Cmd-+, which is the real thing.
  */
 export function useApplyUiScale(scale: number): void {
   React.useEffect(() => {
+    const invoke = tauriInvoke();
     const root = document.documentElement;
-    const previous = root.style.zoom;
-    root.style.zoom = scale === 1 ? "" : String(scale);
+
+    if (invoke) {
+      // The window's own zoom. It survives until the app is quit, so 100%
+      // is set explicitly rather than left, and it is put back on the way
+      // out for whatever page follows this one.
+      void invoke("plugin:webview|set_webview_zoom", { value: scale }).catch(
+        () => {
+          // An older shell without the permission: fall through to CSS.
+          applyCssZoom(root, scale);
+        }
+      );
+      return () => {
+        void invoke("plugin:webview|set_webview_zoom", { value: 1 }).catch(
+          () => {}
+        );
+        clearCssZoom(root);
+      };
+    }
+
+    applyCssZoom(root, scale);
+    return () => clearCssZoom(root);
+  }, [scale]);
+
+  /*
+    The window's height, in the pixels the app lays out in.
+
+    Only the CSS path needs it — page zoom keeps `100vh` honest — but it is
+    harmless there, so it is written either way and the shell reads it in
+    place of vh. `zoom` scales lengths in px and does not scale vh: at 120%
+    a shell told to be 100vh came out a fifth taller than the window.
+  */
+  React.useEffect(() => {
+    const root = document.documentElement;
+    const cssZoomed = !tauriInvoke();
+    const apply = () => {
+      const divisor = cssZoomed ? scale : 1;
+      root.style.setProperty(
+        "--mail-viewport-h",
+        `${window.innerHeight / divisor}px`
+      );
+    };
+    apply();
+    window.addEventListener("resize", apply);
     return () => {
-      root.style.zoom = previous;
+      window.removeEventListener("resize", apply);
+      root.style.removeProperty("--mail-viewport-h");
     };
   }, [scale]);
+}
+
+function applyCssZoom(root: HTMLElement, scale: number): void {
+  root.style.zoom = scale === 1 ? "" : String(scale);
+  // The same number for stylesheets, so a length a library measured in
+  // window pixels can be brought into the app's — see MailPage's settings.
+  root.style.setProperty("--mail-css-zoom", String(scale));
+}
+
+function clearCssZoom(root: HTMLElement): void {
+  root.style.zoom = "";
+  root.style.removeProperty("--mail-css-zoom");
 }
