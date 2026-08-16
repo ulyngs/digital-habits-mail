@@ -37,29 +37,41 @@ html[data-theme="dark"] body {
 }
 
 /* On Windows the window has no system title bar either (see
-   tauri.windows.conf.json). There are no traffic lights on the left, so the
-   row starts at its left edge; the window buttons sit at the right, over the
+   tauri.windows.conf.json). The window buttons sit at the right, over the
    strip (see WindowControls.tsx), so the row stops short of them. `main.tsx`
    sets the attribute; MailPage reads the variables. */
 html[data-dh-os="windows"] {
-  --mail-titlebar-left: 12px;
   --mail-titlebar-right: 150px;
 }
 
-/* The search box goes first on Windows, at the left edge of the strip, and
-   the buttons follow it. On a Mac the buttons come first, because the left
-   edge there belongs to the traffic lights and the reader's eye starts to
-   the right of them. Here the row starts at the corner of the window, which
-   is where Windows puts a search box (File Explorer, Settings, the Start
-   menu), so that is what stands there. */
+/* The search box goes first on Windows, and the buttons follow it. On a Mac
+   the buttons come first, because the left edge there belongs to the traffic
+   lights and the reader's eye starts to the right of them. There are no
+   traffic lights here, and a search box at the head of the row is what
+   Windows itself does (File Explorer, Settings, the Start menu). */
 html[data-dh-os="windows"] .mail-titlebar-search {
   order: -1;
 }
 
-/* The controls are pulled 4px left to line the first button's label up with
-   the edge. A search box has a border to line up instead. */
-html[data-dh-os="windows"] .mail-titlebar-controls {
-  margin-left: 0;
+/* And it stands in the same column as New email, rather than out over the
+   folders: the search box and the button under it are the two things the
+   reader reaches for first, and a column is easier to come back to than a
+   corner. MailPage publishes where that column begins, so the search box
+   moves in and out with the folder rail. */
+html[data-dh-os="windows"] .mail-shell {
+  --mail-titlebar-left: var(--mail-list-controls-left, 12px);
+}
+
+/* Following it at the speed of the rail, rather than jumping to the new
+   place while the rail is still sliding to it. */
+html[data-dh-os="windows"] .mail-titlebar {
+  transition: padding-left var(--mail-rail-slide, 0ms) ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html[data-dh-os="windows"] .mail-titlebar {
+    transition: none;
+  }
 }
 
 .dh-window-controls,

@@ -1961,7 +1961,7 @@ export function ThreadPane({
     // An empty composer being closed is not a discard worth offering back.
     if (!hadSomething && !providerRef) return;
 
-    toast("Draft discarded", {
+    toast(mailSay("draftDiscarded"), {
       duration: DISCARD_UNDO_MS,
       action: {
         label: "Undo",
@@ -2746,7 +2746,9 @@ export function ThreadPane({
             : undefined,
         }),
       });
-      toast.success(`Forwarded to ${formatRecipientSummary(toList)}`);
+      toast.success(
+        mailSay("forwardedTo", { who: formatRecipientSummary(toList) })
+      );
       closeComposer();
       onSent?.(fromAccount);
       scheduleThreadRefetchAfterSend(account, threadId, setThread);
@@ -4136,7 +4138,7 @@ export function ThreadPane({
                           {t("goingToFirst")}
                         </>
                       ) : (
-                        "Go to this message"
+                        t("goToThisMessage")
                       )}
                     </button>
                     <span className="shrink-0 text-xs text-stone-400">
@@ -4595,7 +4597,7 @@ export function ThreadPane({
               <span className="min-w-0 flex-1">
                 <span className="block text-[11px] font-semibold text-stone-500">
                   {forwardWhole
-                    ? "Forwarding the whole conversation"
+                    ? t("forwardingWholeConversation")
                     : `Forwarding ${
                         forwardSource.own
                           ? "your message"
@@ -4837,7 +4839,7 @@ export function ThreadPane({
                 onChange={setReply}
                 placeholder={
                   forwarding
-                    ? "Add a note above the forwarded message (optional)…"
+                    ? t("forwardNotePlaceholder")
                     : `Reply to ${thread.participants.filter((p) => p !== "You")[0] ?? "the thread"}…`
                 }
                 minHeight={replyFocus ? 240 : 80}

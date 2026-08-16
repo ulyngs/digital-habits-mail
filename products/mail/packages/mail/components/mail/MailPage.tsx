@@ -72,15 +72,16 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 import {
   Archive,
+  Check,
   Trash2,
   ArrowLeft,
   Calendar,
   CalendarClock,
-  Check,
   ChevronDown,
   ChevronRight,
   Clock,
   Folder,
+  Funnel,
   Loader2,
   Mails,
   Maximize2,
@@ -148,13 +149,14 @@ import {
 import {
   accountChipLabels,
   formatAccountChipLabel,
-  type AccountChipLabel,
 } from "@/lib/mail/account-labels";
 import type {
   MailFolder,
   MailFolderRole,
 } from "@/lib/mail/folder-types";
 import {
+  getMailFilterRowOpen,
+  setMailFilterRowOpen,
   setMailListPlacement,
   type MailListPlacement,
 } from "@/lib/mail/layout";
@@ -206,6 +208,15 @@ import {
   type MailStringKey,
   type MailT,
 } from "@/lib/mail/i18n";
+import {
+  MailAccountTabs,
+  MailRowButton,
+} from "@/components/mail/MailAccountTabs";
+import {
+  scheduledBuiltinTabId,
+  setTabSchedule,
+  useTabSchedules,
+} from "@/lib/mail/tab-schedules";
 import { MAIL_APP_VERSION } from "@/lib/mail/app-version";
 import { MailRestPanel } from "@/components/mail/MailRestPanel";
 import { MailDraftsList } from "@/components/mail/MailDraftsList";
@@ -1719,8 +1730,11 @@ function useMailCustomLists(): MailCustomList[] {
 
 function readStoredMailListTab(customLists: MailCustomList[]): MailListTab {
   if (typeof window === "undefined") return "people";
-  // Scheduled lists win when you open Mail during their window.
-  const scheduled = scheduledCustomListTabId(customLists);
+  // Scheduled lists win when you open Mail during their window, and so do
+  // the built-in filters, which can now be scheduled the same way.
+  const scheduled =
+    scheduledCustomListTabId(customLists) ??
+    scheduledBuiltinTabId(MAIL_LIST_TABS);
   if (scheduled) return scheduled;
   try {
     const stored = localStorage.getItem(MAIL_TAB_KEY);
@@ -1804,6 +1818,22 @@ function useMailListTabOrder(
   return [order, update];
 }
 
+/**
+ * One filter, on the row the funnel opens.
+ *
+ * Lit when it is the one narrowing the list. The row holds the built-in
+ * four, the reader's own lists, whichever of Sent/Drafts/Trash/Junk is open,
+ * and the deleted-mail switch — so they all wear the same shape.
+ */
+function chipClass(active: boolean): string {
+  return cn(
+    "shrink-0 whitespace-nowrap rounded-full border px-2.5 py-1 text-[13px] font-medium transition-colors",
+    active
+      ? "border-teal-600 bg-teal-600/10 text-[var(--mail-chrome-fg)]"
+      : "border-[var(--mail-chrome-border)] text-[var(--mail-chrome-muted)] hover:text-[var(--mail-chrome-fg)]"
+  );
+}
+
 function SortableMailListTab({
   id,
   label,
@@ -1820,6 +1850,7 @@ function SortableMailListTab({
   onEdit?: () => void;
   suppressClick: React.MutableRefObject<boolean>;
 }) {
+  const t = useMailT();
   const {
     attributes,
     listeners,
@@ -1853,19 +1884,19 @@ function SortableMailListTab({
       }
       title={
         onEdit
-          ? `${label} (click to edit · drag to reorder)`
-          : `${label} (drag to reorder)`
+          ? t("listTabHintOwn", { name: label })
+          : t("listTabHint", { name: label })
       }
       aria-label={
         onEdit
-          ? `${label} (click to edit, drag to reorder)`
-          : `${label} (drag to reorder)`
+          ? t("listTabHintOwnAria", { name: label })
+          : t("listTabHint", { name: label })
       }
       className={cn(
-        "shrink-0 touch-none whitespace-nowrap border-b-[3px] pb-0.5 font-medium",
-        active
-          ? "border-[var(--mail-tab-active)] text-[var(--mail-chrome-fg)]"
-          : "border-transparent text-[var(--mail-chrome-muted)] hover:text-[var(--mail-chrome-fg)]",
+        // A chip, not an underlined tab: these are filters now, and a filter
+        // is something you switch on rather than a place you are standing.
+        chipClass(active),
+        "touch-none",
         isDragging && "z-10 cursor-grabbing opacity-80"
       )}
     >
@@ -2258,41 +2289,6 @@ function mailboxScopeKey(selected: string[], accounts: string[]): string {
     .join(",");
 }
 
-function mailboxScopeLabel(
-  selected: string[],
-  accounts: string[],
-  accountLabels: Map<string, AccountChipLabel>,
-  t: MailT
-): string {
-  // "All mailboxes" over one mailbox names a choice nobody has. What the
-  // menu is about there is the mail, and the setting underneath it.
-  if (accounts.length <= 1) return t("allMail");
-  if (isMailboxScopeAll(selected, accounts)) return t("allMailboxes");
-  if (selected.length === 1) {
-    return formatAccountChipLabel(selected[0], accountLabels);
-  }
-  return t("mailboxCount", { count: selected.length });
-}
-
-/**
- * The scope, with a word for deleted mail when it is in it.
- *
- * Only while a search is running, because that is the only time the option
- * does anything — and only when it is on, so the ordinary label stays
- * short. Deleted mail turning up in results is the kind of surprise that
- * has to be answered before it is noticed, not after.
- */
-function mailboxScopeSummary(
-  selected: string[],
-  accounts: string[],
-  accountLabels: Map<string, AccountChipLabel>,
-  includeDeleted: boolean,
-  t: MailT
-): string {
-  const base = mailboxScopeLabel(selected, accounts, accountLabels, t);
-  return includeDeleted ? `${base} ${t("plusDeleted")}` : base;
-}
-
 /** Single-account API ops only when exactly one mailbox is selected. */
 function mailboxScopeApiAccount(
   selected: string[],
@@ -2303,171 +2299,63 @@ function mailboxScopeApiAccount(
   return undefined;
 }
 
-function toggleMailboxScopeEmail(
-  email: string,
-  selected: string[],
-  accounts: string[]
-): string[] {
-  const effective = isMailboxScopeAll(selected, accounts)
-    ? [...accounts]
-    : [...selected];
-  const key = email.toLowerCase();
-  const next = effective.some((e) => e.toLowerCase() === key)
-    ? effective.filter((e) => e.toLowerCase() !== key)
-    : [...effective, accounts.find((e) => e.toLowerCase() === key) ?? email];
-  if (next.length === 0 || next.length >= accounts.length) return [];
-  return next;
-}
-
 /**
- * Inside the search field: which mailboxes to show and to search.
- * Search always covers every folder on a selected mailbox (inbox, sent,
- * archive, labels), not only the open tab.
+ * What searching does, from inside the search field.
+ *
+ * One thing so far, and it belongs here rather than among the filters: those
+ * say which pile of mail to show, and this says whether a search reaches into
+ * mail that was thrown away. Nobody goes looking for it until they are
+ * already typing, which is exactly where this is.
  */
-function MailboxScopeMenu({
-  accounts,
-  selected,
-  onChange,
-  accountLabels,
-  searching,
+function SearchOptionsMenu({
   includeDeleted,
   onIncludeDeletedChange,
 }: {
-  accounts: string[];
-  selected: string[];
-  onChange: (emails: string[]) => void;
-  accountLabels: Map<string, AccountChipLabel>;
-  /** A search is running, so the Trash option has something to act on. */
-  searching: boolean;
   includeDeleted: boolean;
   onIncludeDeletedChange: (next: boolean) => void;
 }) {
   const t = useMailT();
   const [open, setOpen] = React.useState(false);
-  const allVisible = isMailboxScopeAll(selected, accounts);
-  /** One mailbox is not a choice, so it is not offered as one. */
-  const hasMailboxRows = accounts.length > 1;
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <button
           type="button"
-          title={t("mailboxesToShow")}
-          onPointerDown={beginNativeWindowDragOnMove}
-          className="flex h-full shrink-0 items-center gap-0.5 rounded-l-[0.65rem] pl-2 pr-1.5 text-sm font-medium text-stone-600 hover:bg-stone-100 hover:text-stone-900"
+          title={t("searchOptions")}
+          aria-label={t("searchOptions")}
+          className={cn(
+            "ml-1 flex h-5 w-5 shrink-0 items-center justify-center rounded-full",
+            // Lit while it is doing something, so a search that reaches into
+            // deleted mail says so without being opened.
+            includeDeleted
+              ? "bg-teal-50 text-teal-700"
+              : "text-stone-400 hover:bg-stone-100 hover:text-stone-700"
+          )}
         >
-          <span className="max-w-[13rem] truncate">
-            {mailboxScopeSummary(
-              selected,
-              accounts,
-              accountLabels,
-              searching && includeDeleted,
-              t
-            )}
-          </span>
-          <ChevronDown className="h-3.5 w-3.5 shrink-0 opacity-70" />
+          <ChevronDown className="h-3.5 w-3.5" />
         </button>
       </PopoverTrigger>
       <MailPopoverContent align="start" className="w-64 p-1">
-        {(hasMailboxRows ? accounts : []).map((email) => {
-          const checked =
-            allVisible ||
-            selected.some((e) => e.toLowerCase() === email.toLowerCase());
-          const label = accountLabels.get(email);
-          return (
-            <button
-              key={email}
-              type="button"
-              aria-pressed={checked}
-              onClick={() =>
-                onChange(toggleMailboxScopeEmail(email, selected, accounts))
-              }
-              className={cn(
-                "flex w-full items-center gap-2.5 rounded px-2.5 py-1.5 text-left text-sm hover:bg-stone-100",
-                checked && "font-medium text-stone-900"
-              )}
-            >
-              <span className="min-w-0 flex-1 truncate">
-                {label ? (
-                  <>
-                    {label.primary}
-                    {label.suffix ? (
-                      <span className="font-normal text-stone-400">
-                        {" · "}
-                        {label.suffix}
-                      </span>
-                    ) : null}
-                  </>
-                ) : (
-                  email
-                )}
-              </span>
-              {checked ? (
-                <Check className="h-3.5 w-3.5 shrink-0" aria-hidden />
-              ) : (
-                <span className="h-3.5 w-3.5 shrink-0" aria-hidden />
-              )}
-            </button>
-          );
-        })}
-        {/* Below a rule and drawn as a checkbox, where the mailboxes above
-            are ticks: this is an option about searching rather than one
-            more place to search. It was a "Deleted" pill beside the search
-            box, which read as a filter that showed only deleted mail — the
-            opposite of what it does.
-
-            Here whether or not anything is typed. It is a standing
-            preference about how this reader searches, and one they will
-            want to find and set before the search that needs it rather
-            than in the middle of one. */}
-        <div
-          className={cn(
-            "mx-1 pt-1",
-            // A rule only when there is something above it to be ruled off.
-            hasMailboxRows && "mt-1 border-t border-stone-200"
-          )}
+        <button
+          type="button"
+          role="checkbox"
+          aria-checked={includeDeleted}
+          onClick={() => onIncludeDeletedChange(!includeDeleted)}
+          className="flex w-full items-center gap-2.5 rounded px-2.5 py-1.5 text-left text-sm text-stone-800 hover:bg-stone-100"
         >
-            <button
-              type="button"
-              role="checkbox"
-              aria-checked={includeDeleted}
-              onClick={() => onIncludeDeletedChange(!includeDeleted)}
-              className="flex w-full items-center gap-2.5 rounded px-2.5 py-1.5 text-left text-sm text-stone-800 hover:bg-stone-100"
-            >
-              <span className="min-w-0 flex-1 truncate">
-                {t("includeDeleted")}
-              </span>
-              <span
-                aria-hidden
-                className={cn(
-                  "flex h-4 w-4 shrink-0 items-center justify-center rounded border",
-                  includeDeleted
-                    ? "border-teal-600 bg-teal-600 text-white"
-                    : "border-stone-300"
-                )}
-              >
-                {includeDeleted ? <Check className="h-3 w-3" /> : null}
-              </span>
-            </button>
-        </div>
-        {/* Not a checkbox either, so it sits below its own rule: the rows
-            above change what is searched, this one leaves for the menu that
-            adds and removes mailboxes. */}
-        <div className="mx-1 mt-1 border-t border-stone-200 pt-1">
-          <button
-            type="button"
-            onClick={() => {
-              setOpen(false);
-              openMailAccountsMenu();
-            }}
-            className="flex w-full items-center gap-2.5 rounded px-2.5 py-1.5 text-left text-sm text-stone-500 hover:bg-stone-100 hover:text-stone-900"
+          <span className="min-w-0 flex-1">{t("includeDeleted")}</span>
+          <span
+            aria-hidden
+            className={cn(
+              "flex h-4 w-4 shrink-0 items-center justify-center rounded border",
+              includeDeleted
+                ? "border-teal-600 bg-teal-600 text-white"
+                : "border-stone-300"
+            )}
           >
-            <span className="min-w-0 flex-1 truncate">
-              {t("manageMailboxes")}
-            </span>
-            <ChevronRight className="h-3.5 w-3.5 shrink-0" aria-hidden />
-          </button>
-        </div>
+            {includeDeleted ? <Check className="h-3 w-3" /> : null}
+          </span>
+        </button>
       </MailPopoverContent>
     </Popover>
   );
@@ -2697,6 +2585,18 @@ const RAIL_GIVES_WAY_BELOW = 760;
 const RAIL_SLIDE_GRACE_MS = 80;
 
 /**
+ * The gap the rail is resized by, between it and the list. Keep in step with
+ * the `w-1` on the separator.
+ */
+const RAIL_GUTTER = 4;
+
+/**
+ * How far the thread list holds its contents in from its own left edge. Keep
+ * in step with the `px-5` on the list's controls column.
+ */
+const LIST_COLUMN_PAD = 20;
+
+/**
  * The folder the list is showing.
  *
  * `account` is the mailbox it was opened from, or null for every mailbox at
@@ -2813,9 +2713,21 @@ export function MailPage({
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } })
   );
   /** null = closed; create = new list; string = editing that list id. */
+  const tabSchedules = useTabSchedules();
   const [listEditor, setListEditor] = React.useState<
     null | "create" | string
   >(null);
+  /**
+   * The built-in filter whose schedule is open, if that is what is open.
+   *
+   * The editor takes one of three things: nothing (a new list), one of the
+   * reader's lists, or one of the four built-in filters — and for a built-in
+   * there is only ever the schedule to change.
+   */
+  const editingBuiltin =
+    typeof listEditor === "string" && MAIL_LIST_TABS.includes(listEditor)
+      ? listEditor
+      : null;
   const editingList =
     typeof listEditor === "string"
       ? customListById.get(listEditor) ?? null
@@ -3318,6 +3230,12 @@ export function MailPage({
    * one is running.
    */
   const [searchDeleted, setSearchDeleted] = React.useState(false);
+  const [filterRowOpen, setFilterRowOpenState] = React.useState(false);
+  React.useEffect(() => setFilterRowOpenState(getMailFilterRowOpen()), []);
+  const setFilterRowOpen = React.useCallback((open: boolean) => {
+    setFilterRowOpenState(open);
+    setMailFilterRowOpen(open);
+  }, []);
 
   /**
    * Browse/search params for the API. List paint filters by mailbox scope
@@ -3675,7 +3593,7 @@ export function MailPage({
           (cached?.threads.length ?? 0) > 0 || warmRows.length > 0;
         const message =
           err instanceof Error && err.name === "AbortError"
-            ? "Inbox load timed out"
+            ? mailSay("inboxLoadTimedOut")
             : err instanceof Error
               ? err.message
               : "Couldn't load inbox";
@@ -4145,7 +4063,7 @@ export function MailPage({
           patchCachedThreads(viewerId, listCacheKey, next);
           return next;
         });
-        toast("Marked as unread");
+        toast(mailSay("markedAsUnread"));
       } catch (err) {
         toast.error(
           err instanceof Error ? err.message : "Couldn't mark as unread"
@@ -4364,12 +4282,12 @@ export function MailPage({
           pushMailUndo(
             "move",
             summary,
-            `Moved to ${json.folderName}`,
+            mailSay("movedToFolder", { name: json.folderName }),
             json.folderName,
             json.movedOut ? openFolderName : null
           );
         } else {
-          toast.success(`Moved to ${json.folderName}`);
+          toast.success(mailSay("movedToFolder", { name: json.folderName }));
         }
       } catch (err) {
         unhideRows([key]);
@@ -4416,7 +4334,7 @@ export function MailPage({
             `"${summary.subject}" archived in ${provider}`
           );
         } else {
-          toast(`Conversation archived in ${provider}`);
+          toast(mailSay("archivedIn", { provider }));
         }
       } catch (err) {
         unhideRows([key]);
@@ -5436,6 +5354,21 @@ export function MailPage({
    * the window and has no far side, so the rail stays where it was.
    */
   const railOnRight = listPlacement === "right";
+  /**
+   * Where the thread list's own controls begin, in px from the left edge of
+   * the window.
+   *
+   * The list column starts after the rail and the gutter between them, and
+   * holds its contents in from there — so New email, the first thing in it,
+   * stands here. Published to the shell so a title strip laid out from the
+   * left edge of the window can stand its own first control in the same
+   * column (the standalone app on Windows does — see `--mail-titlebar-left`
+   * in apps/mail/src/standalone.css). Only the column's own inset when
+   * there is no rail to the left of the list to clear.
+   */
+  const listControlsLeft =
+    (!hideList && railShowing && !railOnRight ? railWidth + RAIL_GUTTER : 0) +
+    LIST_COLUMN_PAD;
   const listBorderClass =
     listPlacement === "left"
       ? "border-r"
@@ -5800,66 +5733,84 @@ export function MailPage({
         !listVertical && "mt-3"
       )}
     >
-      {/* items-end, not items-center.
-          The tabs sit in a scroller, and the folder button is taller than
-          they are, so centred they floated a pixel or two above the rule
-          and the active underline never met it. Bottom-aligned, every
-          tab's border finishes exactly where the row's border begins —
-          which is how the same row is built in the to-do app, without a
-          negative margin anywhere. */}
-      <div
-        className="flex items-end border-b"
-        style={{ borderColor: "var(--mail-chrome-border)" }}
-      >
-        {/* Before the first tab, because it is not one. All / In Contacts /
-            Other choose which conversations the list holds; this chooses
-            whether the folders are on screen.
+      {/*
+        Two rows, and the second one grows when it is asked to.
 
-            Only while they are not. A lit button next to the tabs, saying
-            the folders are showing, is a second answer to a question the
-            rail answers by being there — and it was lit for as long as the
-            rail was open, which is most of the time. The way to close them
-            is on the folders themselves. */}
+        The first says whose mail this is — All, or one mailbox — and it gets
+        the width to itself, because that is the row a reader reads along.
+
+        The second holds the folders and the funnel, and the filters unroll
+        along it when the funnel is pressed: they belong to that button, so
+        they come out beside it rather than starting a row of their own. A
+        reader who wants everything from one mailbox, which is most of the
+        time, never sees them.
+      */}
+      <div>
+        <MailAccountTabs
+          accounts={accountEmails}
+          labels={accountLabels}
+          isOutlookAccount={isOutlookAccount}
+          selected={mailboxScopeEmails}
+          onSelect={setMailboxScopeEmails}
+          onReorder={(next) => {
+            // The row writes the arrangement itself, All among the mailboxes.
+            // This is the list answering at once, before the store's own
+            // event comes back around.
+            setAccountEmails(next);
+          }}
+          onNavy={chromeDark}
+        />
+      </div>
+
+      {/*
+        Under the tabs, not beside them.
+
+        Beside them they were two more things competing for a sidebar's worth
+        of width with the mailboxes, which are the row's whole point — and the
+        first thing to be squeezed out was the mailbox at the end. Underneath,
+        the tabs get the width and these two get their names.
+      */}
+      <div className="mt-2 flex items-center gap-2">
         {!railShowing ? (
-        <button
-          type="button"
-          title={t("showFolders")}
-          aria-label={t("showFolders")}
-          className={cn(
-            // The same 3px of transparent border the tabs carry, so the row
-            // bottom-aligns it with them — but it never lights, because
-            // this is not a tab and must not read as the chosen one.
-            //
-            // py-[3px] rather than the tabs' pb-0.5: the tabs are text with
-            // room under it, this is a glyph that wants the same room on
-            // both sides. Three each way puts the middle of the glyph on
-            // the middle of their words, which is what the row reads along.
-            //
-            // bg-clip-padding: without it the hover background paints under
-            // that transparent border and hangs 3px below the pill.
-            "mr-2 inline-flex shrink-0 items-center rounded-md border-b-[3px] border-transparent bg-clip-padding px-1.5 py-[3px]",
-            "text-[var(--mail-chrome-muted)] hover:bg-[var(--mail-chrome-hover)] hover:text-[var(--mail-chrome-fg)]"
-          )}
-          onClick={() => setRailOpen(true)}
-          onDragEnter={(e) => {
-            // Dragging a conversation at the folders asks for the folders.
-            // It opens and stays open — the rail is not a menu that springs
-            // shut again once the drop has landed.
-            if (!isMailThreadDrag(e.dataTransfer)) return;
-            e.preventDefault();
-            setRailOpen(true);
-          }}
-          onDragOver={(e) => {
-            if (!isMailThreadDrag(e.dataTransfer)) return;
-            e.preventDefault();
-            e.dataTransfer.dropEffect = "move";
-          }}
-        >
-          <Folder className="h-[18px] w-[18px]" />
-        </button>
+          <MailRowButton
+            icon={Folder}
+            label={t("folders")}
+            onNavy={chromeDark}
+            onClick={() => setRailOpen(true)}
+            onDragEnter={(e: React.DragEvent) => {
+              // Dragging a conversation at the folders asks for the folders.
+              // It opens and stays open — the rail is not a menu that springs
+              // shut again once the drop has landed.
+              if (!isMailThreadDrag(e.dataTransfer)) return;
+              e.preventDefault();
+              setRailOpen(true);
+            }}
+            onDragOver={(e: React.DragEvent) => {
+              if (!isMailThreadDrag(e.dataTransfer)) return;
+              e.preventDefault();
+              e.dataTransfer.dropEffect = "move";
+            }}
+          />
         ) : null}
-        {/* Tabs scroll when the sidebar is too narrow. */}
-        <div className="min-w-0 flex-1 overflow-x-auto [scrollbar-width:thin]">
+        <MailRowButton
+          icon={Funnel}
+          label={t("filterLabel")}
+          // Lit while the filters are showing, and only then. Lighting it
+          // because a filter happened to be on made it look like the chosen
+          // one of a pair of buttons, which it is not.
+          active={filterRowOpen}
+          aria-expanded={filterRowOpen}
+          onNavy={chromeDark}
+          onClick={() => setFilterRowOpen(!filterRowOpen)}
+        />
+
+        {filterRowOpen ? (
+        /* The half-rem of padding, and the same again in negative margin, is
+           room for a chip's own outline. A scroller clips at its box, and the
+           first chip sat exactly on that edge — so the left of its border was
+           shaved off, which read as a chip half out of the row. The margin
+           puts the row back where it was. */
+        <div className="-mx-0.5 min-w-0 flex-1 overflow-x-auto px-0.5 py-0.5 [scrollbar-width:thin]">
           <DndContext
             sensors={tabReorderSensors}
             collisionDetection={closestCenter}
@@ -5885,7 +5836,7 @@ export function MailPage({
               items={tabOrder}
               strategy={horizontalListSortingStrategy}
             >
-              <div className="flex w-max items-center gap-4 pr-2">
+              <div className="flex w-max items-center gap-2 py-0.5 pr-2">
                 {tabOrder.map((id) => {
                   const listId = parseCustomListTabId(id);
                   const custom = listId
@@ -5903,8 +5854,17 @@ export function MailPage({
                       suppressClick={tabReorderSuppressClick}
                       onSelect={() => {
                         setActiveFolder(null);
+                        // The first press chooses the list. Pressing the one
+                        // already chosen is what opens it for editing: a
+                        // reader switching between two lists was being handed
+                        // the editor every time they switched.
+                        const alreadyOn = tab === id;
                         setTab(id);
+                        if (!alreadyOn) return;
+                        // A list of your own opens whole; a built-in filter
+                        // opens at its schedule, which is all there is to it.
                         if (custom) setListEditor(custom.id);
+                        else if (MAIL_LIST_TABS.includes(id)) setListEditor(id);
                       }}
                       onEdit={
                         custom ? () => setListEditor(custom.id) : undefined
@@ -6013,25 +5973,47 @@ export function MailPage({
             </SortableContext>
           </DndContext>
         </div>
+        ) : null}
       </div>
       <MailCustomListEditor
         open={listEditor != null}
         onCancel={() => setListEditor(null)}
-        title={editingList ? t("editList") : t("newList")}
-        submitLabel={editingList ? t("save") : t("createList")}
+        scheduleOnly={Boolean(editingBuiltin)}
+        title={
+          editingBuiltin
+            ? mailBuiltinTabLabels(t)[editingBuiltin] ?? editingBuiltin
+            : editingList
+              ? t("editList")
+              : t("newList")
+        }
+        submitLabel={editingList || editingBuiltin ? t("save") : t("createList")}
         initial={
-          editingList
+          editingBuiltin
             ? {
-                name: editingList.name,
-                members: editingList.members,
-                scheduleDefault: editingList.scheduleDefault,
-                scheduleFrom: editingList.scheduleFrom,
-                scheduleTo: editingList.scheduleTo,
-                scheduleDays: editingList.scheduleDays,
+                name: editingBuiltin,
+                members: [],
+                scheduleDefault: Boolean(tabSchedules[editingBuiltin]),
+                scheduleFrom: tabSchedules[editingBuiltin]?.from,
+                scheduleTo: tabSchedules[editingBuiltin]?.to,
+                scheduleDays: tabSchedules[editingBuiltin]?.days,
               }
-            : undefined
+            : editingList
+              ? {
+                  name: editingList.name,
+                  members: editingList.members,
+                  scheduleDefault: editingList.scheduleDefault,
+                  scheduleFrom: editingList.scheduleFrom,
+                  scheduleTo: editingList.scheduleTo,
+                  scheduleDays: editingList.scheduleDays,
+                }
+              : undefined
         }
         onSubmit={(name, members, schedule) => {
+          if (editingBuiltin) {
+            setTabSchedule(editingBuiltin, schedule.enabled ? schedule : null);
+            setListEditor(null);
+            return;
+          }
           if (editingList) {
             updateCustomList(editingList.id, {
               name,
@@ -6068,6 +6050,16 @@ export function MailPage({
       ref={mailSurfaceRef}
       className="mail-shell flex h-dvh min-h-0 flex-1 flex-col overflow-hidden bg-[var(--mail-chrome)]"
       data-theme={colorMode}
+      style={
+        {
+          "--mail-list-controls-left": `${listControlsLeft}px`,
+          // How long anything following that column takes to catch up with
+          // it: the length of the rail's slide, and nothing at all while the
+          // rail is being dragged, where a lag would be a control trailing
+          // the pointer.
+          "--mail-rail-slide": railResizing ? "0ms" : `${RAIL_SLIDE_MS}ms`,
+        } as React.CSSProperties
+      }
     >
       {/* Overlay title bar — same height as the Mac traffic-light strip
           (matches .dh-titlebar / NativeTitleDragStrip h-11). Search sits in
@@ -6075,7 +6067,7 @@ export function MailPage({
           `deep` makes empty chrome draggable; inputs stay interactive. */}
       <div
         data-tauri-drag-region="deep"
-        className="relative flex h-11 shrink-0 items-center gap-3 border-b bg-[var(--mail-chrome)]"
+        className="mail-titlebar relative flex h-11 shrink-0 items-center gap-3 border-b bg-[var(--mail-chrome)]"
         style={{
           borderColor: "var(--mail-chrome-border)",
           // Where the row stops. A shell that puts window buttons at the
@@ -6095,8 +6087,9 @@ export function MailPage({
            * does not drag the search field.
            *
            * A shell with no traffic lights to clear overrides the whole rule
-           * through the variable — see the standalone app's Windows window
-           * in apps/mail/src/standalone.css.
+           * through the variable — the standalone app's Windows window
+           * stands the row over the list column instead, and follows it in
+           * and out with the rail. See apps/mail/src/standalone.css.
            */
           paddingLeft:
             "var(--mail-titlebar-left, clamp(80px, calc(100vw - 800px), 380px))",
@@ -6143,31 +6136,16 @@ export function MailPage({
               "focus-within:ring-2 focus-within:ring-[var(--mail-title-search-ring)]"
             )}
           >
-            {/* Always, now. Even a reader with one mailbox has a deleted
-                mail setting to find, and it is not something to go looking
-                for only once a search is already half typed. */}
-            {accountEmails.length ? (
-              <>
-                <MailboxScopeMenu
-                  accounts={accountEmails}
-                  selected={mailboxScopeEmails}
-                  onChange={setMailboxScopeEmails}
-                  accountLabels={accountLabels}
-                  searching={Boolean(search)}
-                  includeDeleted={searchDeleted}
-                  onIncludeDeletedChange={setSearchDeleted}
-                />
-                <span
-                  className="mr-1 h-3.5 w-px shrink-0 bg-stone-200"
-                  aria-hidden
-                />
-              </>
-            ) : null}
+            {/* Which mailboxes to search is which mailbox the tabs are
+                showing, so no menu for that here any more. What is left is
+                the one thing that is about the searching rather than about
+                the list: whether deleted mail answers. */}
+            <SearchOptionsMenu
+              includeDeleted={searchDeleted}
+              onIncludeDeletedChange={setSearchDeleted}
+            />
             <Search
-              className={cn(
-                "pointer-events-none h-3.5 w-3.5 shrink-0 text-stone-400",
-                accountEmails.length <= 1 && "ml-2.5"
-              )}
+              className="pointer-events-none h-3.5 w-3.5 shrink-0 text-stone-400"
               aria-hidden
             />
             <input

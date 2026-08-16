@@ -544,6 +544,7 @@ function FolderRow({
   onRenameSubmit?: (nextLabel: string) => void;
   onRenameCancel?: () => void;
 }) {
+  const t = useMailT();
   const springRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   // A row standing for a search has no folder behind it to file into, and
   // "Archived" is not somewhere you put mail in any case — you archive it.
@@ -884,11 +885,11 @@ function FolderRow({
         <button
           type="button"
           tabIndex={-1}
-          title={favourite ? "Remove from favourites" : "Add to favourites"}
+          title={t(favourite ? "removeFromFavourites" : "addToFavourites")}
           aria-label={
             favourite
-              ? `Remove ${node.label} from favourites`
-              : `Add ${node.label} to favourites`
+              ? `${t("removeFromFavourites")}: ${node.label}`
+              : `${t("addToFavourites")}: ${node.label}`
           }
           aria-pressed={favourite}
           className={cn(
@@ -2150,7 +2151,7 @@ export function MailFolderRail({
               value={newName}
               disabled={saving}
               placeholder={t("newFolderName")}
-              aria-label={`New folder inside ${node.label}`}
+              aria-label={t("newFolderInside", { name: node.label })}
               className="mb-1 mt-0.5 w-full rounded-md border border-teal-500 bg-white px-2 py-1 text-sm outline-none"
               // Where the folder will be: one step in from its parent, in
               // the place the row itself will take once it exists.
@@ -2718,7 +2719,7 @@ export function MailFolderRail({
                   value={newName}
                   disabled={saving}
                   placeholder={t("newFolderName")}
-                  aria-label={`New folder name on ${account}`}
+                  aria-label={t("newFolderNameOn", { account })}
                   className="mb-1 w-full rounded-md border border-teal-500 bg-white px-2 py-1 text-sm outline-none"
                   onChange={(e) => setNewName(e.target.value)}
                   onBlur={() => setCreatingFor(null)}

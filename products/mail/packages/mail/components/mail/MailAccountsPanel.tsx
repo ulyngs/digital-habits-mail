@@ -29,7 +29,6 @@ import { CSS } from "@dnd-kit/utilities";
 import {
   Eye,
   EyeOff,
-  GripVertical,
   Loader2,
   Plus,
   RefreshCw,
@@ -37,6 +36,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
+import { AccountMark } from "@/components/mail/AccountMark";
 import {
   autoReplyActive,
   type AutoReplyDto,
@@ -48,10 +48,12 @@ import {
 } from "@/components/mail/settings-ui";
 import { Button } from "@/components/ui/button";
 import {
+  mergeAccountOrder,
   readAccountOrder,
   sortAccountsByOrder,
   writeAccountOrder,
 } from "@/lib/mail/account-order";
+import { useAccountMarks } from "@/lib/mail/account-mark";
 import { mailApiJson as apiJson } from "@/lib/mail/api";
 import { currentMailLocale, useMailT } from "@/lib/mail/i18n";
 import { mailUsesCrmPeople } from "@/lib/mail/product-flavor";
@@ -155,8 +157,11 @@ function SortableAccountRow({
   onEndAutoReply: () => void;
 }) {
   const t = useMailT();
+  const marks = useAccountMarks();
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id: account.email });
+  /** A press on a control is a press, not the beginning of a drag. */
+  const stopDrag = (event: React.PointerEvent) => event.stopPropagation();
   const away = autoReply !== undefined && autoReplyActive(autoReply);
   const isOutlook = account.provider === "outlook";
 
@@ -179,22 +184,32 @@ function SortableAccountRow({
         isDragging && "z-10 rounded-lg bg-white shadow-md"
       )}
     >
-      <div className="flex items-center justify-between gap-1 px-1.5 py-1.5">
-      <button
-        type="button"
-        className="shrink-0 cursor-grab touch-none rounded p-1 text-stone-300 hover:text-stone-500 active:cursor-grabbing"
-        aria-label={t("reorderAccount", { email: account.email })}
+      {/*
+        The whole row is the handle.
+
+        There was a grip at the left of it, which is a control that exists to
+        say "this can be moved" — and a row that can be moved should say so by
+        moving. The buttons at the right stop the drag before it starts (see
+        `stopDrag`), so the one thing you can do to a row by pressing it is
+        still the thing that button does.
+      */}
+      <div
+        className="flex cursor-grab touch-none items-center justify-between gap-2 px-2 py-1.5 active:cursor-grabbing"
         {...attributes}
         {...listeners}
+        aria-label={t("reorderAccount", { email: account.email })}
       >
-        <GripVertical className="h-3.5 w-3.5" />
-      </button>
+      {/* The same mark the mailbox wears on its tab, so the two rows read as
+          the same list of mailboxes — the reader's own picture when they have
+          set one, and the provider's otherwise. */}
+      <AccountMark
+        mark={marks[account.email.trim().toLowerCase()]}
+        provider={isOutlook ? "outlook" : "gmail"}
+        className={cn("h-4 w-4", !account.inMailTab && "opacity-40")}
+      />
       <div className="min-w-0 flex-1">
         <p className={cn("truncate text-sm", !account.inMailTab && "text-stone-400")}>
           {account.email}
-          <span className="ml-1.5 text-[10px] font-medium uppercase tracking-wide text-stone-400">
-            {isOutlook ? "Outlook" : "Gmail"}
-          </span>
         </p>
         <p
           className={cn(
@@ -231,6 +246,7 @@ function SortableAccountRow({
                 : t("hideFromMailTab")
               : t("showInMailTab")
           }
+          onPointerDown={stopDrag}
           onClick={onToggleInMailTab}
         >
           {account.inMailTab ? (
@@ -253,6 +269,7 @@ function SortableAccountRow({
             reconnecting ? t("openingProviders") : t("reconnectTitle")
           }
           disabled={reconnecting}
+          onPointerDown={stopDrag}
           onClick={onReconnect}
         >
           {reconnecting ? (
@@ -268,6 +285,7 @@ function SortableAccountRow({
           className="h-7 w-7 text-muted-foreground hover:text-red-600"
           aria-label={t("disconnectAccount", { email: account.email })}
           title={t("disconnect")}
+          onPointerDown={stopDrag}
           onClick={onDisconnect}
         >
           <Trash2 className="h-3.5 w-3.5" />
@@ -301,14 +319,16 @@ function SortableAccountRow({
                 <button
                   type="button"
                   className="font-medium text-teal-700 hover:underline"
-                  onClick={onEditAutoReply}
+                  onPointerDown={stopDrag}
+          onClick={onEditAutoReply}
                 >
                   {t("edit")}
                 </button>
                 <button
                   type="button"
                   className="font-medium text-teal-700 hover:underline"
-                  onClick={onEndAutoReply}
+                  onPointerDown={stopDrag}
+          onClick={onEndAutoReply}
                 >
                   {t("end")}
                 </button>
@@ -328,7 +348,8 @@ function SortableAccountRow({
               <button
                 type="button"
                 className="shrink-0 font-medium text-teal-700 hover:underline"
-                onClick={onEditAutoReply}
+                onPointerDown={stopDrag}
+          onClick={onEditAutoReply}
               >
                 {t("setUp")}
               </button>
@@ -622,7 +643,11 @@ export function MailAccountsPanel({
     // The reader's own arrangement, whichever provider each mailbox came
     // from. It is what the rail and the mail list follow — see
     // `@/lib/mail/account-order`.
-    writeAccountOrder(next.map((a) => a.email));
+    // Only the mailboxes moved, so only the mailboxes are rewritten: the All
+    // tab keeps the place the reader dragged it to on the row upstairs.
+    writeAccountOrder(
+      mergeAccountOrder(readAccountOrder(), next.map((a) => a.email))
+    );
     void (async () => {
       try {
         // Each provider is told the order of its own as well, so a host that

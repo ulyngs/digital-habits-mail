@@ -8,6 +8,7 @@ import {
   CONTACTS_CHANGED_EVENT,
   openContactSourcesDialog,
 } from "@/components/mail/ContactSourcesDialog";
+import { AppleMark } from "@/components/mail/AccountMark";
 import { Popover, PopoverTrigger } from "@/components/ui/popover";
 import { MailPopoverContent } from "@/components/mail/MailPopoverContent";
 import {
@@ -32,6 +33,17 @@ import { cn } from "@/lib/utils";
 import { mailApiJson as apiJson } from "@/lib/mail/api";
 import { mailApiFetch } from "@/lib/mail/api";
 
+/**
+ * The row the arrow keys are on.
+ *
+ * The navy the rail paints an open folder in, rather than the palest teal
+ * this had: on a white menu that teal was a tint you had to look for, and
+ * looking for it is the one thing a reader running down a list with the
+ * keyboard cannot do. Navy is the same "you are here" the rest of the app
+ * uses, and it takes the words on the row with it.
+ */
+const HIGHLIGHT_ROW = "bg-[var(--mail-chrome-pinned)]";
+
 function provenanceBadgeClass(source: MailContactSuggestion["source"]): string {
   if (source === "crm") {
     return "bg-teal-700 text-white";
@@ -46,7 +58,7 @@ function provenanceBadgeClass(source: MailContactSuggestion["source"]): string {
 }
 
 function formatSearchingFooter(sources: MailContactSourceSummary[]): string {
-  if (!sources.length) return "Searching contacts";
+  if (!sources.length) return mailSay("searchingContacts");
   const ready = sources.filter((s) => !s.needsReconnect);
   const needsReconnect = sources.filter((s) => s.needsReconnect);
   // Prefer listing sources that can actually return hits; call out reconnects.
@@ -340,7 +352,7 @@ function selfSuggestionsFromAccounts(
     out.push({
       email,
       name: "You",
-      recordName: "Your mailbox",
+      recordName: mailSay("yourMailbox"),
       source: "self",
       account: email,
     });
@@ -432,7 +444,7 @@ function SaveAsListControl({
       </PopoverTrigger>
       <MailPopoverContent align="end" className="w-72 p-3">
         <p className="text-sm font-medium text-stone-800">
-          Save these {people.length} people as a list
+          {t("saveTheseAsList", { count: people.length })}
         </p>
         <input
           autoFocus
@@ -465,7 +477,7 @@ function SaveAsListControl({
           </button>
         </div>
         <p className="mt-3 text-[11px] leading-snug text-stone-400">
-          The recipients stay on this email; next time, type the list name.
+          {t("saveListNote")}
         </p>
       </MailPopoverContent>
     </Popover>
@@ -841,7 +853,7 @@ function ListChip({
                   onExpand();
                 }}
               >
-                Expand to {members.length} recipients
+                {t("expandToRecipients", { count: members.length })}
               </button>
               <label className="flex items-center gap-2 text-sm text-stone-700">
                 <input
@@ -1084,7 +1096,7 @@ export function RecipientField({
       byEmail.set(key, {
         ...row,
         name: row.name || prev.name || "You",
-        recordName: row.recordName || prev.recordName || "Your mailbox",
+        recordName: row.recordName || prev.recordName || t("yourMailbox"),
         source: row.source === "self" || prev.source === "self" ? "self" : row.source,
       });
     }
@@ -1719,7 +1731,7 @@ export function RecipientField({
                         type="button"
                         className={cn(
                           "flex w-full items-center gap-2.5 px-3 py-2 text-left",
-                          i === highlight ? "bg-teal-50" : "hover:bg-stone-50"
+                          i === highlight ? HIGHLIGHT_ROW : "hover:bg-stone-50"
                         )}
                         onMouseEnter={() => setHighlight(i)}
                         onMouseDown={(e) => {
@@ -1731,10 +1743,24 @@ export function RecipientField({
                           <Users className="h-4 w-4" />
                         </span>
                         <span className="min-w-0">
-                          <span className="block truncate text-sm font-medium text-stone-900">
+                          <span
+                            className={cn(
+                              "block truncate text-sm font-medium",
+                              i === highlight
+                                ? "text-[var(--mail-chrome-pinned-fg)]"
+                                : "text-stone-900"
+                            )}
+                          >
                             {item.list.name}
                           </span>
-                          <span className="block text-xs text-stone-500">
+                          <span
+                            className={cn(
+                              "block text-xs",
+                              i === highlight
+                                ? "text-[var(--mail-chrome-pinned-fg)] opacity-70"
+                                : "text-stone-500"
+                            )}
+                          >
                             List · {item.list.members.length} people
                           </span>
                         </span>
@@ -1753,13 +1779,17 @@ export function RecipientField({
                 ) : null}
                 {contactItems.map((item) => {
                   const i = menu.indexOf(item);
-                  const badge = contactSourceBadge(item.contact);
+                  const badgeKey = contactSourceBadge(item.contact);
+                  const badge = badgeKey ? t(badgeKey) : null;
+                  // The Mac's address book, said with the apple rather than
+                  // with a longer word: four things here are called Contacts.
+                  const fromMac = item.contact.source === "mac";
                   const isHistory = item.contact.source === "history";
                   // Every row must show the address it will insert. A history
                   // row needs it most: the person is in no contact list, so
                   // the reader cannot know which of their addresses this is.
                   const emailedWhen = isHistory
-                    ? historyEmailedWhen(item.contact.lastEmailedAt)
+                    ? historyEmailedWhen(item.contact.lastEmailedAt, t)
                     : null;
                   const subtitle = isHistory
                     ? emailedWhen
@@ -1778,7 +1808,7 @@ export function RecipientField({
                       <div
                         className={cn(
                           "flex w-full items-center gap-2 px-3 py-2",
-                          i === highlight ? "bg-teal-50" : "hover:bg-stone-50"
+                          i === highlight ? HIGHLIGHT_ROW : "hover:bg-stone-50"
                         )}
                         onMouseEnter={() => setHighlight(i)}
                       >
@@ -1805,11 +1835,23 @@ export function RecipientField({
                             </span>
                           )}
                           <span className="min-w-0 flex-1">
-                            <span className="block truncate text-sm font-medium text-stone-900">
+                            <span
+                              className={cn(
+                                "block truncate text-sm font-medium",
+                                i === highlight
+                                  ? "text-[var(--mail-chrome-pinned-fg)]"
+                                  : "text-stone-900"
+                              )}
+                            >
                               {item.contact.name || item.contact.email}
                             </span>
                             <span
-                              className="block truncate text-xs text-stone-500"
+                              className={cn(
+                                "block truncate text-xs",
+                                i === highlight
+                                  ? "text-[var(--mail-chrome-pinned-fg)] opacity-70"
+                                  : "text-stone-500"
+                              )}
                               title={subtitle}
                             >
                               {subtitle}
@@ -1831,14 +1873,17 @@ export function RecipientField({
                             <X className="h-3.5 w-3.5" />
                           </button>
                         ) : null}
-                        <span
-                          className={cn(
-                            "shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide",
-                            provenanceBadgeClass(item.contact.source)
-                          )}
-                        >
-                          {badge}
-                        </span>
+                        {badge ? (
+                          <span
+                            className={cn(
+                              "flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide",
+                              provenanceBadgeClass(item.contact.source)
+                            )}
+                          >
+                            {fromMac ? <AppleMark /> : null}
+                            {badge}
+                          </span>
+                        ) : null}
                       </div>
                     </li>
                   );

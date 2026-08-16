@@ -9,6 +9,7 @@
 import assert from "node:assert/strict";
 
 import {
+  mergeAccountOrder,
   moveAccountBefore,
   sortAccountsByOrder,
 } from "@/lib/mail/account-order";
@@ -111,4 +112,27 @@ assert.deepEqual(
     ["g1@example.com", "o1@outlook.example", "g2@example.com"]
   ),
   ["g1@example.com", "o1@outlook.example", "g2@example.com"]
+);
+
+// --- Reordering mailboxes without losing the All tab -------------------------
+
+/** The settings panel moves mailboxes; the All tab keeps its place. */
+assert.deepEqual(
+  mergeAccountOrder(
+    ["a@example.com", "all", "b@example.com", "c@example.com"],
+    ["c@example.com", "b@example.com", "a@example.com"]
+  ),
+  ["c@example.com", "all", "b@example.com", "a@example.com"]
+);
+
+/** A mailbox the arrangement never knew is added at the end. */
+assert.deepEqual(
+  mergeAccountOrder(["all", "a@example.com"], ["a@example.com", "new@example.com"]),
+  ["all", "a@example.com", "new@example.com"]
+);
+
+/** Nothing but mailboxes: the new order stands as given. */
+assert.deepEqual(
+  mergeAccountOrder(["a@example.com", "b@example.com"], ["b@example.com", "a@example.com"]),
+  ["b@example.com", "a@example.com"]
 );

@@ -3,6 +3,8 @@
  * Safe for client + server (no DB imports).
  */
 
+import type { MailStringKey, MailT } from "@/lib/mail/i18n-strings";
+
 export type MailContactSourceKind =
   | "crm"
   | "team"
@@ -34,25 +36,33 @@ export type MailContactSourceSummary = {
   needsReconnect?: boolean;
 };
 
-/** Short provenance label for a typeahead row badge. */
+/**
+ * Short provenance label for a typeahead row badge, as an i18n key.
+ *
+ * Null for a source this does not know. A row from somewhere unnamed is a
+ * row without a badge — which is what it looked like before these were keys,
+ * and better than the word "undefined" in a pill.
+ */
 export function contactSourceBadge(
   suggestion: Pick<MailContactSuggestion, "source">
-): string {
+): MailStringKey | null {
   switch (suggestion.source) {
     case "crm":
-      return "CRM";
+      return "badgeCrm";
     case "team":
-      return "TEAM";
+      return "badgeTeam";
     case "google":
-      return "GOOGLE";
+      return "badgeGoogle";
     case "outlook":
-      return "OUTLOOK";
+      return "badgeOutlook";
     case "history":
-      return "HISTORY";
+      return "badgeHistory";
     case "mac":
-      return "CONTACTS";
+      return "badgeContacts";
     case "self":
-      return "YOU";
+      return "badgeYou";
+    default:
+      return null;
   }
 }
 
@@ -64,18 +74,19 @@ export function contactSourceBadge(
  * already say the row came from old mail and not from a contact source.
  */
 export function historyEmailedWhen(
-  iso: string | null | undefined
+  iso: string | null | undefined,
+  t: MailT
 ): string | null {
   if (!iso) return null;
   const at = Date.parse(iso);
   if (!Number.isFinite(at)) return null;
   const days = Math.max(0, Math.round((Date.now() - at) / (24 * 60 * 60 * 1000)));
-  if (days <= 0) return "today";
-  if (days === 1) return "yesterday";
-  if (days < 14) return `${days} days ago`;
-  if (days < 60) return `${Math.round(days / 7)} weeks ago`;
-  if (days < 730) return `${Math.round(days / 30)} months ago`;
-  return `${Math.round(days / 365)} years ago`;
+  if (days <= 0) return t("emailedToday");
+  if (days === 1) return t("emailedYesterday");
+  if (days < 14) return t("emailedDaysAgo", { count: days });
+  if (days < 60) return t("emailedWeeksAgo", { count: Math.round(days / 7) });
+  if (days < 730) return t("emailedMonthsAgo", { count: Math.round(days / 30) });
+  return t("emailedYearsAgo", { count: Math.round(days / 365) });
 }
 
 /** Where to fix this contact (external for providers; in-app for CRM/history). */

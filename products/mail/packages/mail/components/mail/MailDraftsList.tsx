@@ -1,6 +1,7 @@
 "use client";
 
 import { rowTime } from "@/lib/mail/date-format";
+import { useMailT } from "@/lib/mail/i18n";
 import type { MailDraftRow } from "@/lib/mail/types";
 import { isNativeShell } from "@/lib/native-shell";
 import { cn } from "@/lib/utils";
@@ -78,10 +79,11 @@ export function MailDraftsList({
   loading: boolean;
   onOpen: (row: MailDraftRow) => void;
 }) {
+  const t = useMailT();
   if (!rows.length) {
     return (
       <p className="px-5 py-8 text-sm text-[var(--mail-chrome-muted)]">
-        {loading ? "Looking for drafts…" : "Nothing unsent."}
+        {loading ? t("lookingForDrafts") : t("nothingUnsent")}
       </p>
     );
   }

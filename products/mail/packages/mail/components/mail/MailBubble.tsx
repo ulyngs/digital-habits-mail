@@ -229,7 +229,7 @@ function MessageHoverActions({
                 }}
               >
                 <Info className="h-4 w-4 shrink-0 text-stone-400" aria-hidden />
-                {detailsOpen ? "Hide details" : "Details"}
+                {detailsOpen ? t("hideDetails") : t("details")}
               </button>
             ) : null}
             {onPrint ? (
@@ -776,7 +776,7 @@ export function MailBubble({
                        here the time sits below the frame instead, so that
                        room is a hole, and this takes most of it back. */
                     className="mx-3.5 -mt-4 mb-1.5 inline-flex h-3 items-center justify-center gap-[2.5px] rounded-full bg-stone-200/70 px-2 text-stone-600 hover:bg-stone-200"
-                    title={showQuoted ? "Hide quoted text" : "Show quoted text"}
+                    title={showQuoted ? t("hideQuotedText") : t("showQuotedText")}
                     onClick={toggleQuoted}
                   >
                     <span className="h-[2.5px] w-[2.5px] rounded-full bg-current" />
@@ -812,7 +812,7 @@ export function MailBubble({
                   <button
                     type="button"
                     className="mt-1 inline-flex h-3 items-center justify-center gap-[2.5px] rounded-full bg-stone-200/70 px-2 text-stone-600 hover:bg-stone-200"
-                    title={showQuoted ? "Hide quoted text" : "Show quoted text"}
+                    title={showQuoted ? t("hideQuotedText") : t("showQuotedText")}
                     onClick={toggleQuoted}
                   >
                     <span className="h-[2.5px] w-[2.5px] rounded-full bg-current" />

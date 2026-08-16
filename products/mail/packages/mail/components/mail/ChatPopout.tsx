@@ -62,7 +62,7 @@ import { teamAvatarSrc } from "@/lib/mail/team-avatars";
 import type { MailMessage, MailThreadDetail } from "@/lib/mail/types";
 import { closeChatPopout, resizeChatPopout } from "@/lib/native-shell";
 import { saveThreadDraft, threadDraftKey } from "@/lib/mail/local-drafts";
-import { useMailT } from "@/lib/mail/i18n";
+import { mailSay, useMailT } from "@/lib/mail/i18n";
 import { cn } from "@/lib/utils";
 import { mailApiJson as apiJson } from "@/lib/mail/api";
 import { useMailColorMode } from "@/lib/mail/theme";
@@ -597,7 +597,7 @@ export function ChatPopout({
     // A file on its own is a message. Words are not required for one.
     if ((!body && !attachments.length) || sending || !thread) return;
     if (!attachmentsReady) {
-      setSendError("Still preparing the files…");
+      setSendError(mailSay("stillPreparingFiles"));
       return;
     }
     // Reply recipients strip our own addresses, so a self-addressed thread
@@ -930,7 +930,7 @@ export function ChatPopout({
                 <div ref={contentRef} className="space-y-2">
                 {canLoadOlder ? (
                   <p className="py-2 text-center text-[11px] text-stone-400">
-                    {loadingOlder ? "Loading earlier messages…" : "Scroll up for earlier messages"}
+                    {loadingOlder ? t("loadingEarlierMessages") : t("scrollUpForEarlier")}
                   </p>
                 ) : null}
                 {loadError && !thread ? (

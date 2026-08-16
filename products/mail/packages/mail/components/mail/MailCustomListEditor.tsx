@@ -123,6 +123,7 @@ export function MailCustomListEditor({
   submitLabel = "Create list",
   onSubmit,
   onDelete,
+  scheduleOnly = false,
 }: {
   open: boolean;
   onCancel: () => void;
@@ -142,6 +143,14 @@ export function MailCustomListEditor({
     schedule: MailCustomListSchedule
   ) => void;
   onDelete?: () => void;
+  /**
+   * The schedule and nothing else.
+   *
+   * For the built-in filters. There is no name of yours on All or In
+   * Contacts and no list of people in them — the only thing there is to say
+   * about one is when it should be the tab Mail opens on.
+   */
+  scheduleOnly?: boolean;
 }) {
   const t = useMailT();
   const [name, setName] = React.useState(initial?.name ?? "");
@@ -217,7 +226,7 @@ export function MailCustomListEditor({
     }
   };
 
-  const canSubmit = name.trim().length > 0;
+  const canSubmit = scheduleOnly || name.trim().length > 0;
 
   if (!open) return null;
 
@@ -226,13 +235,17 @@ export function MailCustomListEditor({
       <p className="text-xs font-semibold uppercase tracking-wide text-stone-600">
         {title}
       </p>
-      <input
-        ref={nameRef}
-        value={name}
-        onChange={(e) => setName(e.target.value)}
-        placeholder={t("listNamePlaceholder")}
-        className={cn(fieldClass, "mt-2.5")}
-      />
+      {scheduleOnly ? null : (
+        <input
+          ref={nameRef}
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder={t("listNamePlaceholder")}
+          className={cn(fieldClass, "mt-2.5")}
+        />
+      )}
+      {scheduleOnly ? null : (
+        <>
       <div className="relative mt-2">
         <input
           value={query}
@@ -318,6 +331,8 @@ export function MailCustomListEditor({
           ))}
         </div>
       ) : null}
+        </>
+      )}
 
       <div className="mt-3 border-t border-stone-200 pt-3">
         <label className="flex cursor-pointer items-center gap-2 text-sm text-stone-700">

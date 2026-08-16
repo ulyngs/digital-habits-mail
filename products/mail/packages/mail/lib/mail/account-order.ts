@@ -12,7 +12,9 @@
  * those two Gmail ones" between them. The reader's arrangement is a
  * preference, and it lives with the preferences.
  *
- * No React here, so a test can read it.
+ * No React here, so a test can read it. The subscription a row watches it
+ * with is in `@/lib/mail/use-account-order`, kept apart the way the
+ * shortcuts keep theirs.
  */
 
 function sameEmail(a: string, b: string): boolean {
@@ -93,6 +95,35 @@ export function writeAccountOrder(order: string[]): void {
  * follows the mailbox it came after in the list as given. A mailbox in the
  * order that is no longer connected is passed over.
  */
+/**
+ * A new order for the mailboxes, keeping everything else where it stands.
+ *
+ * The arrangement holds one entry that is not a mailbox — the All tab — and
+ * a surface that reorders mailboxes alone must not lose it. The settings
+ * panel is that surface: it lists mailboxes and nothing else, so the row it
+ * hands back is spliced into the arrangement at the places the mailboxes
+ * already occupied.
+ */
+export function mergeAccountOrder(
+  current: string[],
+  accounts: string[]
+): string[] {
+  const moving = new Set(accounts.map((email) => email.trim().toLowerCase()));
+  const queue = [...accounts];
+  const out: string[] = [];
+  for (const entry of current) {
+    if (moving.has(entry.trim().toLowerCase())) {
+      const next = queue.shift();
+      if (next) out.push(next);
+      continue;
+    }
+    out.push(entry);
+  }
+  // Mailboxes the arrangement had never heard of go on the end.
+  out.push(...queue);
+  return out;
+}
+
 export function sortAccountsByOrder(
   accounts: string[],
   order: string[]
@@ -118,3 +149,14 @@ export function sortAccountsByOrder(
     )
     .map((entry) => entry.email);
 }
+
+/**
+ * The All tab's place in the row, kept in the same arrangement.
+ *
+ * It is a tab like the others as far as the row is concerned — the reader
+ * can put it where they want it — and it is not a mailbox, so everything
+ * that reads this list for mailboxes passes over it: an entry that names no
+ * connected account is skipped, and this one names none.
+ */
+export const ALL_TAB_ID = "all";
+

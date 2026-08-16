@@ -1,0 +1,502 @@
+"use client";
+
+/**
+ * Which mailbox the list is showing: All, or one of them.
+ *
+ * This is the row that used to hold All / In Contacts / Other. Those are
+ * filters — they narrow whatever is on screen — and they moved behind the
+ * button at the end of this row. What a reader reaches for first is whose
+ * mail they are looking at, so that is what the row now holds.
+ *
+ * The tabs are in the order the mailboxes are kept in, which the folder rail
+ * sets by dragging. One row, one order, everywhere.
+ */
+
+import * as React from "react";
+import { createPortal } from "react-dom";
+import {
+  closestCenter,
+  DndContext,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  arrayMove,
+  horizontalListSortingStrategy,
+  SortableContext,
+  useSortable,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
+import { Image as ImageIcon, RotateCcw } from "lucide-react";
+import { toast } from "sonner";
+
+import { AccountMark } from "@/components/mail/AccountMark";
+import {
+  ACCOUNT_MARK_MAX_EDGE,
+  setAccountMark,
+  useAccountMarks,
+} from "@/lib/mail/account-mark";
+import type { AccountChipLabel } from "@/lib/mail/account-labels";
+import { ALL_TAB_ID, writeAccountOrder } from "@/lib/mail/account-order";
+import { useAccountOrder } from "@/lib/mail/use-account-order";
+import { useMailT } from "@/lib/mail/i18n";
+import { downscaleTarget } from "@/lib/mail/rest-image";
+import { cn } from "@/lib/utils";
+
+/** Scale a chosen picture down to a mark and hand it back as a data URL. */
+async function fileToMark(file: File): Promise<string> {
+  const url = URL.createObjectURL(file);
+  try {
+    const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const element = new Image();
+      element.onload = () => resolve(element);
+      element.onerror = () => reject(new Error("That file is not a picture"));
+      element.src = url;
+    });
+    const target = downscaleTarget(
+      image.naturalWidth,
+      image.naturalHeight,
+      ACCOUNT_MARK_MAX_EDGE
+    );
+    const canvas = document.createElement("canvas");
+    canvas.width = target.width;
+    canvas.height = target.height;
+    const context = canvas.getContext("2d");
+    if (!context) throw new Error("Could not read that picture");
+    context.drawImage(image, 0, 0, target.width, target.height);
+    // PNG: a logo has flat colour and hard edges, which JPEG smears.
+    return canvas.toDataURL("image/png");
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
+/** The right-click menu on a mailbox tab. Placed at the pointer. */
+function MarkMenu({
+  x,
+  y,
+  hasOwnMark,
+  onChoose,
+  onReset,
+  onDismiss,
+}: {
+  x: number;
+  y: number;
+  hasOwnMark: boolean;
+  onChoose: () => void;
+  onReset: () => void;
+  onDismiss: () => void;
+}) {
+  const t = useMailT();
+  const ref = React.useRef<HTMLDivElement>(null);
+  const [placed, setPlaced] = React.useState({ left: x, top: y });
+
+  React.useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const box = el.getBoundingClientRect();
+    setPlaced({
+      left: Math.min(x, window.innerWidth - box.width - 8),
+      top: Math.min(y, window.innerHeight - box.height - 8),
+    });
+  }, [x, y]);
+
+  React.useEffect(() => {
+    const onDown = (event: MouseEvent) => {
+      if (ref.current?.contains(event.target as Node)) return;
+      onDismiss();
+    };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onDismiss();
+    };
+    window.addEventListener("mousedown", onDown, true);
+    window.addEventListener("keydown", onKey);
+    window.addEventListener("scroll", onDismiss, true);
+    window.addEventListener("blur", onDismiss);
+    return () => {
+      window.removeEventListener("mousedown", onDown, true);
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("scroll", onDismiss, true);
+      window.removeEventListener("blur", onDismiss);
+    };
+  }, [onDismiss]);
+
+  const item =
+    "flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-stone-800 hover:bg-stone-100";
+  const icon = "h-3.5 w-3.5 shrink-0 text-stone-400";
+
+  return createPortal(
+    <div
+      ref={ref}
+      role="menu"
+      style={{ left: placed.left, top: placed.top }}
+      className="mail-light-surface fixed z-[70] w-max rounded-lg border border-stone-200 bg-white py-1 shadow-lg"
+    >
+      <button
+        type="button"
+        role="menuitem"
+        autoFocus
+        className={item}
+        onClick={onChoose}
+      >
+        <ImageIcon className={icon} aria-hidden />
+        {t("chooseAPicture")}
+      </button>
+      {hasOwnMark ? (
+        <button type="button" role="menuitem" className={item} onClick={onReset}>
+          <RotateCcw className={icon} aria-hidden />
+          {t("useProviderMark")}
+        </button>
+      ) : null}
+    </div>,
+    document.body
+  );
+}
+
+/**
+ * One mailbox tab, which can be dragged along the row.
+ *
+ * The order is the reader's arrangement — the same one the folder rail sets
+ * by dragging its headings, and the same one the chips and the mail list
+ * follow. Dragged here or dragged there, it is one order.
+ *
+ * A drag of four pixels is what starts one, so a press stays a press: these
+ * tabs choose a mailbox and open its picture, and neither must go off in the
+ * hand of somebody who moved the mouse while clicking.
+ */
+function SortableAccountTab({
+  email,
+  children,
+  className,
+  title,
+  pressed,
+  suppressClick,
+  onSelect,
+  onContextMenu,
+}: {
+  email: string;
+  children: React.ReactNode;
+  className: string;
+  title: string;
+  pressed: boolean;
+  suppressClick: React.MutableRefObject<boolean>;
+  onSelect: (event: React.MouseEvent<HTMLButtonElement>) => void;
+  onContextMenu: (event: React.MouseEvent) => void;
+}) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: email });
+  return (
+    <button
+      ref={setNodeRef}
+      type="button"
+      title={title}
+      style={{ transform: CSS.Transform.toString(transform), transition }}
+      {...attributes}
+      {...listeners}
+      // After the drag attributes, which carry one of their own.
+      aria-pressed={pressed}
+      className={cn(
+        className,
+        "touch-none",
+        isDragging && "z-10 cursor-grabbing opacity-80"
+      )}
+      onClick={(event) => {
+        if (suppressClick.current || isDragging) return;
+        onSelect(event);
+      }}
+      onContextMenu={onContextMenu}
+    >
+      {children}
+    </button>
+  );
+}
+
+export function MailAccountTabs({
+  accounts,
+  labels,
+  isOutlookAccount,
+  /** Empty means every mailbox. One address means that one. */
+  selected,
+  onSelect,
+  onReorder,
+  onNavy = false,
+}: {
+  accounts: string[];
+  labels: Map<string, AccountChipLabel>;
+  isOutlookAccount: (email: string) => boolean;
+  selected: string[];
+  onSelect: (emails: string[]) => void;
+  /** The whole row, in its new order, after one has been dragged along it. */
+  onReorder?: (accounts: string[]) => void;
+  onNavy?: boolean;
+}) {
+  const t = useMailT();
+  const marks = useAccountMarks();
+  const order = useAccountOrder();
+  const [menu, setMenu] = React.useState<{
+    account: string;
+    x: number;
+    y: number;
+  } | null>(null);
+  const fileRef = React.useRef<HTMLInputElement | null>(null);
+  const forRef = React.useRef<string | null>(null);
+  /** A drop synthesises a click. That one is not a press. */
+  const suppressClick = React.useRef(false);
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 4 } })
+  );
+
+  /**
+   * The row, in order, with All among the mailboxes rather than nailed to the
+   * front of them: it is a tab like the others and moves like one.
+   *
+   * Anything the arrangement names that is not on the row is passed over — a
+   * mailbox since disconnected — and anything on the row it does not name is
+   * added at the end, which is where a mailbox connected since the last drag
+   * belongs.
+   */
+  const rowIds = React.useMemo(() => {
+    const byKey = new Map(accounts.map((email) => [email.toLowerCase(), email]));
+    const out: string[] = [];
+    const seen = new Set<string>();
+    for (const entry of order) {
+      const key = entry.toLowerCase();
+      if (seen.has(key)) continue;
+      if (key === ALL_TAB_ID) {
+        seen.add(key);
+        out.push(ALL_TAB_ID);
+        continue;
+      }
+      const email = byKey.get(key);
+      if (!email) continue;
+      seen.add(key);
+      out.push(email);
+    }
+    if (!seen.has(ALL_TAB_ID)) out.unshift(ALL_TAB_ID);
+    for (const email of accounts) {
+      if (!seen.has(email.toLowerCase())) out.push(email);
+    }
+    return out;
+  }, [accounts, order]);
+
+  const onDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    window.setTimeout(() => {
+      suppressClick.current = false;
+    }, 0);
+    if (!over || active.id === over.id) return;
+    const from = rowIds.indexOf(String(active.id));
+    const to = rowIds.indexOf(String(over.id));
+    if (from < 0 || to < 0) return;
+    const next = arrayMove(rowIds, from, to);
+    // The whole row is written, All and all; the mailboxes alone go back to
+    // the host, so its own list answers at once.
+    writeAccountOrder(next);
+    onReorder?.(next.filter((id) => id !== ALL_TAB_ID));
+  };
+
+  const allMailboxes = selected.length === 0;
+
+  const pick = async (file: File | undefined) => {
+    const account = forRef.current;
+    forRef.current = null;
+    if (!file || !account) return;
+    try {
+      setAccountMark(account, await fileToMark(file));
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : t("couldNotReadThatPicture")
+      );
+    }
+  };
+
+  const tab = (active: boolean) =>
+    cn(
+      "flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-1 text-[13px] transition-colors",
+      active
+        ? "bg-white font-semibold text-stone-900 shadow-sm"
+        : onNavy
+          ? "text-[var(--mail-chrome-muted)] hover:text-[var(--mail-chrome-fg)]"
+          : "text-stone-600 hover:text-stone-900"
+    );
+
+  return (
+    <>
+      {/* The tabs sit on a track, so the chosen one reads as a card lifted
+          out of the row rather than as one word among four.
+
+          The row scrolls sideways: four mailboxes do not fit a sidebar, and
+          the answer is to reach the fifth rather than to squeeze all five
+          into a width that suits none of them. */}
+      <div className="-mx-0.5 overflow-x-auto px-0.5 [scrollbar-width:thin]">
+        <div
+          className={cn(
+            "flex w-max items-center gap-1 rounded-full p-1",
+            onNavy ? "bg-white/10" : "bg-[var(--mail-chrome-hover)]"
+          )}
+        >
+          <DndContext
+            sensors={sensors}
+            collisionDetection={closestCenter}
+            onDragStart={() => {
+              suppressClick.current = true;
+            }}
+            onDragEnd={onDragEnd}
+          >
+          <SortableContext
+            items={rowIds}
+            strategy={horizontalListSortingStrategy}
+          >
+          {rowIds.map((id) => {
+            if (id === ALL_TAB_ID) {
+              return (
+                <SortableAccountTab
+                  key={ALL_TAB_ID}
+                  email={ALL_TAB_ID}
+                  title={t("allMailboxes")}
+                  className={tab(allMailboxes)}
+                  pressed={allMailboxes}
+                  suppressClick={suppressClick}
+                  onSelect={() => onSelect([])}
+                  onContextMenu={(event) => event.preventDefault()}
+                >
+                  <AccountMark provider="unknown" className="h-3.5 w-3.5" />
+                  {t("tabAll")}
+                </SortableAccountTab>
+              );
+            }
+            const email = id;
+            const label = labels.get(email);
+            const active =
+              selected.length === 1 &&
+              selected[0].toLowerCase() === email.toLowerCase();
+            return (
+              <SortableAccountTab
+                key={email}
+                email={email}
+                title={email}
+                className={tab(active)}
+                pressed={active}
+                suppressClick={suppressClick}
+                /*
+                  The first press chooses the mailbox. Pressing the one
+                  already chosen is what opens its picture — the same rule
+                  the filters follow, where a second press opens the list.
+                  It drops from the pointer rather than sitting at it,
+                  because a press is aimed at the tab and not at a spot.
+                */
+                onSelect={(event) => {
+                  if (!active) {
+                    onSelect([email]);
+                    return;
+                  }
+                  const box = event.currentTarget.getBoundingClientRect();
+                  setMenu({ account: email, x: box.left, y: box.bottom + 6 });
+                }}
+                /* And a right-click opens it from any tab, chosen or not. */
+                onContextMenu={(event) => {
+                  event.preventDefault();
+                  setMenu({ account: email, x: event.clientX, y: event.clientY });
+                }}
+              >
+                <AccountMark
+                  mark={marks[email.trim().toLowerCase()]}
+                  provider={isOutlookAccount(email) ? "outlook" : "gmail"}
+                />
+                <span className="max-w-[10rem] truncate">
+                  {label?.primary ?? email}
+                </span>
+              </SortableAccountTab>
+            );
+          })}
+          </SortableContext>
+          </DndContext>
+        </div>
+      </div>
+
+      <input
+        ref={fileRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={(event) => {
+          const file = event.target.files?.[0];
+          event.target.value = "";
+          void pick(file);
+        }}
+      />
+      {menu ? (
+        <MarkMenu
+          x={menu.x}
+          y={menu.y}
+          hasOwnMark={Boolean(marks[menu.account.trim().toLowerCase()])}
+          onChoose={() => {
+            forRef.current = menu.account;
+            setMenu(null);
+            fileRef.current?.click();
+          }}
+          onReset={() => {
+            setAccountMark(menu.account, null);
+            setMenu(null);
+          }}
+          onDismiss={() => setMenu(null)}
+        />
+      ) : null}
+    </>
+  );
+}
+
+/**
+ * A row button under the tabs: the folders, and the filters.
+ *
+ * The glyph alone. A folder and a funnel are two of the few pictures that
+ * need no caption, and the name is a hover and a screen reader away — so the
+ * row stays a row of controls rather than a second row of words under a row
+ * of words.
+ */
+export function MailRowButton({
+  icon: Icon,
+  label,
+  active,
+  onNavy = false,
+  onClick,
+  ...rest
+}: {
+  icon: React.ComponentType<{ className?: string }>;
+  label: string;
+  /** Lit: the folders are showing, or a filter is narrowing the list. */
+  active?: boolean;
+  onNavy?: boolean;
+  onClick: () => void;
+} & Omit<React.ComponentPropsWithoutRef<"button">, "onClick" | "className">) {
+  return (
+    <button
+      type="button"
+      title={label}
+      onClick={onClick}
+      aria-label={label}
+      className={cn(
+        // No outline. A ring around a glyph reads as a chosen thing, and
+        // this one is not chosen — it is either doing something or it is
+        // not, and the colour is enough to say which.
+        "flex h-8 w-8 shrink-0 items-center justify-center rounded-full transition-colors",
+        active
+          ? "text-teal-700 hover:bg-teal-600/10"
+          : onNavy
+            ? "text-[var(--mail-chrome-muted)] hover:bg-[var(--mail-chrome-hover)] hover:text-[var(--mail-chrome-fg)]"
+            : "text-stone-500 hover:bg-[var(--mail-chrome-hover)] hover:text-stone-800"
+      )}
+      {...rest}
+    >
+      <Icon className="h-4 w-4" />
+    </button>
+  );
+}
