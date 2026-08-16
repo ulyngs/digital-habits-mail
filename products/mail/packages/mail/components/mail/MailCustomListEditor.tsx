@@ -18,6 +18,7 @@ import {
   type MailScheduleDay,
 } from "@/lib/mail/custom-lists";
 import type { MailContactSuggestion } from "@/lib/mail/contact-suggestion";
+import { useMailT } from "@/lib/mail/i18n";
 import { cn } from "@/lib/utils";
 import { mailApiJson as apiJson } from "@/lib/mail/api";
 
@@ -142,6 +143,7 @@ export function MailCustomListEditor({
   ) => void;
   onDelete?: () => void;
 }) {
+  const t = useMailT();
   const [name, setName] = React.useState(initial?.name ?? "");
   const [members, setMembers] = React.useState<MailCustomListMember[]>(
     initial?.members ?? []
@@ -228,7 +230,7 @@ export function MailCustomListEditor({
         ref={nameRef}
         value={name}
         onChange={(e) => setName(e.target.value)}
-        placeholder="List name, e.g. Universities"
+        placeholder={t("listNamePlaceholder")}
         className={cn(fieldClass, "mt-2.5")}
       />
       <div className="relative mt-2">
@@ -255,7 +257,7 @@ export function MailCustomListEditor({
               setQuery("");
             }
           }}
-          placeholder="Search for people"
+          placeholder={t("searchForPeople")}
           className={fieldClass}
         />
         {suggestions.length ? (
@@ -335,14 +337,14 @@ export function MailCustomListEditor({
               <Check className="h-3 w-3" strokeWidth={3} />
             ) : null}
           </button>
-          <span>Make this the default tab at set times</span>
+          <span>{t("defaultTabAtSetTimes")}</span>
         </label>
         {scheduleDefault ? (
           <div className="mt-3 space-y-3">
             <div className="flex items-end gap-2">
               <TimeField
-                label="Start"
-                aria-label="Schedule start time"
+                label={t("start")}
+                aria-label={t("scheduleStartTime")}
                 value={scheduleFrom}
                 onChange={setScheduleFrom}
               />
@@ -353,8 +355,8 @@ export function MailCustomListEditor({
                 →
               </span>
               <TimeField
-                label="End"
-                aria-label="Schedule end time"
+                label={t("endTime")}
+                aria-label={t("scheduleEndTime")}
                 value={scheduleTo}
                 onChange={setScheduleTo}
               />
@@ -362,7 +364,7 @@ export function MailCustomListEditor({
 
             <div>
               <p className="text-[11px] font-semibold uppercase tracking-wide text-stone-500">
-                Days
+                {t("days")}
               </p>
               <div className="mt-1.5 flex flex-wrap gap-1.5">
                 {SCHEDULE_DAY_LABELS.map(({ day, label }) => {
@@ -426,7 +428,7 @@ export function MailCustomListEditor({
             className="text-sm text-stone-600 hover:text-stone-900"
             onClick={onCancel}
           >
-            Cancel
+            {t("cancel")}
           </button>
           {onDelete ? (
             <button
@@ -434,7 +436,7 @@ export function MailCustomListEditor({
               className="text-sm text-rose-600 hover:text-rose-700"
               onClick={onDelete}
             >
-              Delete
+              {t("delete")}
             </button>
           ) : null}
         </div>

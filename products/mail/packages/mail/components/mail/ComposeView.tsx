@@ -74,6 +74,7 @@ import {
   saveComposeDraft,
   type ComposeMailDraft,
 } from "@/lib/mail/local-drafts";
+import { mailSay, useMailT } from "@/lib/mail/i18n";
 import { cn } from "@/lib/utils";
 
 export function ComposeView({
@@ -110,6 +111,7 @@ export function ComposeView({
     draftKey?: string;
   } | null;
 }) {
+  const t = useMailT();
   const [from, setFrom] = React.useState(accounts[0] ?? "");
   const canSendLater = useCanSendLater(from);
   const [chatStyle, setChatStyle] = React.useState(false);
@@ -361,7 +363,7 @@ export function ComposeView({
   const send = async (sendAt?: string) => {
     if (!canSend) return;
     if (!attachmentsReady) {
-      toast.error("Still preparing attachments…");
+      toast.error(mailSay("stillPreparingAttachments"));
       return;
     }
     const attachments = attachmentPayload();
@@ -630,8 +632,8 @@ export function ComposeView({
                 type="text"
                 value={subject}
                 onChange={(e) => setSubject(e.target.value)}
-                placeholder="Subject"
-                aria-label="Subject"
+                placeholder={t("subject")}
+                aria-label={t("subject")}
                 onKeyDown={onSubjectKeyDown}
                 className={cn(
                   "min-w-0 flex-1 bg-transparent font-serif text-2xl font-bold text-stone-900 outline-none",
@@ -647,8 +649,8 @@ export function ComposeView({
               />
               <button
                 type="button"
-                title={focusMode ? "Show mail list" : "Focus mode"}
-                aria-label={focusMode ? "Show mail list" : "Focus mode"}
+                title={focusMode ? t("showMailList") : t("focusMode")}
+                aria-label={focusMode ? t("showMailList") : t("focusMode")}
                 aria-pressed={focusMode}
                 className="shrink-0 rounded-md p-1.5 text-stone-400 hover:bg-stone-100 hover:text-stone-700"
                 onClick={onToggleFocus}
@@ -662,7 +664,7 @@ export function ComposeView({
             </div>
 
             <div className={rowClass}>
-              <span className={labelClass}>From</span>
+              <span className={labelClass}>{t("fieldFrom")}</span>
               {accounts.length > 1 ? (
                 <FromAccountMenu
                   ref={fromSelectRef}
@@ -670,7 +672,7 @@ export function ComposeView({
                   value={from}
                   accounts={accounts}
                   onChange={setFrom}
-                  label="From"
+                  label={t("fieldFrom")}
                 />
               ) : (
                 <span className="text-stone-800">{from}</span>
@@ -678,10 +680,10 @@ export function ComposeView({
             </div>
 
             <div className={rowClass}>
-              <span className={labelClass}>To</span>
+              <span className={labelClass}>{t("fieldTo")}</span>
               <RecipientField
                 inputRef={toInputRef}
-                label="To"
+                label={t("fieldTo")}
                 variant="inline"
                 values={toList}
                 onChange={setToList}
@@ -690,7 +692,7 @@ export function ComposeView({
                 // so the message keeps the window rather than the addresses.
                 collapseAfter={6}
                 ownAccounts={accounts}
-                placeholder="Start typing a name or list…"
+                placeholder={t("startTypingName")}
                 onTabOut={() =>
                   showCc ? ccInputRef.current?.focus() : focusBody()
                 }
@@ -711,7 +713,7 @@ export function ComposeView({
                         className="underline-offset-2 hover:text-stone-800 hover:underline"
                         onClick={() => setShowBcc(true)}
                       >
-                        Bcc
+                        {t("fieldBcc")}
                       </button>
                     ) : null}
                   </span>
@@ -720,30 +722,30 @@ export function ComposeView({
             </div>
             {showCc ? (
               <div className={rowClass}>
-                <span className={labelClass}>Cc</span>
+                <span className={labelClass}>{t("fieldCc")}</span>
                 <RecipientField
                   inputRef={ccInputRef}
-                  label="Cc"
+                  label={t("fieldCc")}
                   variant="inline"
                   values={ccList}
                   onChange={setCcList}
                   collapseAfter={6}
                   ownAccounts={accounts}
-                  placeholder="Optional"
+                  placeholder={t("optional")}
                 />
               </div>
             ) : null}
             {showBcc ? (
               <div className={rowClass}>
-                <span className={labelClass}>Bcc</span>
+                <span className={labelClass}>{t("fieldBcc")}</span>
                 <RecipientField
-                  label="Bcc"
+                  label={t("fieldBcc")}
                   variant="inline"
                   values={bccList}
                   onChange={setBccList}
                   collapseAfter={6}
                   ownAccounts={accounts}
-                  placeholder="Optional"
+                  placeholder={t("optional")}
                 />
               </div>
             ) : null}
@@ -763,7 +765,7 @@ export function ComposeView({
                 handleRef={editorHandle}
                 defaultValue={body}
                 onChange={setBody}
-                placeholder="Write your message…"
+                placeholder={t("writeYourMessage")}
                 /* Enough to write in, not so much that the signature sits a
                    screen below the first line. The box grows with the words,
                    and the panel scrolls once it outgrows the window. */
@@ -805,7 +807,7 @@ export function ComposeView({
                         16px the button gives its icons — see the reply
                         box, which explains the `!`. */}
                     <SendHorizontal aria-hidden className="!size-3.5" />
-                    {sending ? "Sending…" : "Send"}
+                    {sending ? t("sending") : t("send")}
                   </Button>
                   {canSendLater ? (
                     <SendLaterMenu
@@ -813,8 +815,8 @@ export function ComposeView({
                       trigger={
                         <button
                           type="button"
-                          aria-label="Send later"
-                          title="Send later"
+                          aria-label={t("sendLater")}
+                          title={t("sendLater")}
                           disabled={!canSend}
                           className="flex h-9 items-center border-l border-white/25 bg-teal-600 px-2.5 text-white hover:bg-teal-700 disabled:opacity-50"
                         >
@@ -826,20 +828,20 @@ export function ComposeView({
                 </div>
                 <div id="mail-compose-toolbar">
                   <span className="ql-formats">
-                    <button className="ql-bold" aria-label="Bold" />
-                    <button className="ql-italic" aria-label="Italic" />
-                    <button className="ql-underline" aria-label="Underline" />
+                    <button className="ql-bold" aria-label={t("bold")} />
+                    <button className="ql-italic" aria-label={t("italic")} />
+                    <button className="ql-underline" aria-label={t("underline")} />
                     <button
                       className="ql-list"
                       value="bullet"
-                      aria-label="Bullet list"
+                      aria-label={t("bulletList")}
                     />
                     <button
                       className="ql-list"
                       value="ordered"
-                      aria-label="Numbered list"
+                      aria-label={t("numberedList")}
                     />
-                    <button className="ql-link" aria-label="Link" />
+                    <button className="ql-link" aria-label={t("link")} />
                   </span>
                 </div>
                 <AttachToolbarButton
@@ -879,7 +881,7 @@ export function ComposeView({
                     className="text-[15px] text-stone-500 underline-offset-2 hover:text-stone-800 hover:underline"
                     onClick={() => setShowPreview(true)}
                   >
-                    Preview
+                    {t("preview")}
                   </button>
                 ) : null}
                 <span className="ml-auto flex items-start gap-3">
@@ -898,16 +900,18 @@ export function ComposeView({
                       }}
                     />
                     <span className="flex flex-col leading-tight">
-                      <span className="text-xs font-normal">Chat style</span>
+                      <span className="text-xs font-normal">
+                        {t("chatStyle")}
+                      </span>
                       <span className="text-xs text-stone-500">
-                        does not quote history
+                        {t("doesNotQuoteHistory")}
                       </span>
                     </span>
                   </label>
                   <button
                     type="button"
-                    title="Discard"
-                    aria-label="Discard"
+                    title={t("discard")}
+                    aria-label={t("discard")}
                     className="rounded p-1 text-stone-400 hover:bg-stone-100 hover:text-stone-700"
                     onClick={discardCompose}
                   >
@@ -921,23 +925,23 @@ export function ComposeView({
           <div
             role="separator"
             aria-orientation="vertical"
-            aria-label="Resize width"
-            title="Drag to resize width"
+            aria-label={t("resizeWidth")}
+            title={t("dragToResizeWidth")}
             onPointerDown={startCardResize("e")}
             className="absolute -right-1 top-3 bottom-3 z-10 w-2 cursor-ew-resize touch-none rounded-full hover:bg-stone-300/50"
           />
           <div
             role="separator"
             aria-orientation="horizontal"
-            aria-label="Resize height"
-            title="Drag to resize height"
+            aria-label={t("resizeHeight")}
+            title={t("dragToResizeHeight")}
             onPointerDown={startCardResize("s")}
             className="absolute -bottom-1 left-3 right-3 z-10 h-2 cursor-ns-resize touch-none rounded-full hover:bg-stone-300/50"
           />
           <div
             role="separator"
-            aria-label="Resize width and height"
-            title="Drag to resize"
+            aria-label={t("resizeWidthAndHeight")}
+            title={t("dragToResize")}
             onPointerDown={startCardResize("se")}
             className="absolute bottom-0 right-0 z-10 h-4 w-4 cursor-nwse-resize touch-none"
           />

@@ -16,6 +16,8 @@
  * No React here, so a suite can read it.
  */
 
+import { MAIL_LANGS, mailSay, makeMailT } from "@/lib/mail/i18n-strings";
+
 export type MailRestFilter = "none" | "grayscale" | "warm" | "soft";
 
 export type MailRestState = {
@@ -49,6 +51,26 @@ export const MAX_REST_ZOOM = 4;
 
 /** The longest edge an imported picture is scaled to before it is stored. */
 export const REST_IMAGE_MAX_EDGE = 1600;
+
+/**
+ * The caption the app ships with, in the reader's language.
+ *
+ * A caption is free text, and one the reader wrote is theirs — so the only
+ * one that follows the language is the one nobody has rewritten. That is what
+ * `isDefaultRestCaption` asks: a caption that still says the shipped line, in
+ * any language it has, has never been touched.
+ */
+export function isDefaultRestCaption(caption: string): boolean {
+  const text = caption.trim();
+  return MAIL_LANGS.some(
+    (lang) => makeMailT(lang)("restDefaultCaption") === text
+  );
+}
+
+/** What the pane shows: the reader's own words, or the shipped ones. */
+export function restCaptionText(caption: string): string {
+  return isDefaultRestCaption(caption) ? mailSay("restDefaultCaption") : caption;
+}
 
 export const DEFAULT_MAIL_REST: MailRestState = {
   hasImage: true,

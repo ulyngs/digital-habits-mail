@@ -7,8 +7,12 @@
  */
 
 import { chatDayLabel, sameDay, timeOfDay } from "@/lib/mail/date-format";
+import { makeMailT } from "@/lib/mail/i18n-strings";
 
 import { check, suite } from "./harness.mjs";
+
+/** The heading names a day in the reader's language, so it is given one. */
+const t = makeMailT("en");
 
 const at = (daysAgo, hours = 12, minutes = 0) => {
   const d = new Date();
@@ -27,11 +31,11 @@ suite(async () => {
   check("and nothing for no date", timeOfDay(null) === "");
 
   // --- The day over the run -----------------------------------------------
-  check("today says so", chatDayLabel(at(0)) === "Today");
-  check("yesterday says so", chatDayLabel(at(1)) === "Yesterday");
+  check("today says so", chatDayLabel(at(0), t) === "Today");
+  check("yesterday says so", chatDayLabel(at(1), t) === "Yesterday");
   // Not "Earlier this week": a heading over bubbles has to name the day.
   {
-    const label = chatDayLabel(at(3));
+    const label = chatDayLabel(at(3), t);
     check(
       "older names the day",
       label !== "Today" && label !== "Yesterday" && label.length > 0,
@@ -39,7 +43,7 @@ suite(async () => {
     );
     check("and it reads as a date", /[A-Za-z]/.test(label), label);
   }
-  check("nothing for no date", chatDayLabel(null) === "");
+  check("nothing for no date", chatDayLabel(null, t) === "");
 
   // --- Where a heading goes ------------------------------------------------
   check(

@@ -36,6 +36,7 @@ import {
   newFolderNameProblem,
   type FolderPickItem,
 } from "@/lib/mail/folder-picker";
+import { mailSay, useMailT } from "@/lib/mail/i18n";
 import { cn } from "@/lib/utils";
 import { mailApiJson as apiJson } from "@/lib/mail/api";
 
@@ -375,7 +376,7 @@ export function useMailFolders(
         })
         .catch(() => {
           if (!cancelled && !shouldIgnoreFetchError()) {
-            toast.error("Couldn't load folders");
+            toast.error(mailSay("couldNotLoadFolders"));
           }
         })
         .finally(() => {
@@ -439,6 +440,7 @@ function NewFolderFooter({
   onHover: () => void;
   disabled?: boolean;
 }) {
+  const t = useMailT();
   return (
     <div className="border-t border-stone-100 p-1">
       <button
@@ -449,7 +451,7 @@ function NewFolderFooter({
         className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm text-stone-800 hover:bg-stone-50 disabled:opacity-60"
       >
         <FolderPlus className="h-4 w-4 shrink-0 text-stone-400" aria-hidden />
-        New folder
+        {t("newFolder")}
       </button>
     </div>
   );
@@ -477,6 +479,7 @@ function NewFolderRow({
   onPick: () => void;
   onHover: () => void;
 }) {
+  const t = useMailT();
   return (
     <button
       type="button"
@@ -500,7 +503,7 @@ function NewFolderRow({
         <FolderPlus className="h-4 w-4 shrink-0 text-stone-400" aria-hidden />
       )}
       <span className="min-w-0 flex-1 truncate">
-        {pending ? "Making" : "Make folder"} &lsquo;{name}&rsquo;
+        {pending ? t("makingFolder") : t("makeFolder")} &lsquo;{name}&rsquo;
         {pending ? "…" : null}
       </span>
       {highlighted && !pending ? (
@@ -554,6 +557,7 @@ export function FoldersTabMenu({
   /** Square icon button (avatar-rail chrome) instead of the tab-row trigger. */
   iconOnly?: boolean;
 }) {
+  const t = useMailT();
   const [open, setOpen] = React.useState(false);
   const [query, setQuery] = React.useState("");
   const [highlight, setHighlight] = React.useState(0);
@@ -663,7 +667,9 @@ export function FoldersTabMenu({
       setNaming(false);
       setOpen(false);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Couldn't make the folder");
+      toast.error(
+        err instanceof Error ? err.message : mailSay("couldNotMakeFolder")
+      );
     } finally {
       setSaving(false);
       setCreating(null);
@@ -689,7 +695,7 @@ export function FoldersTabMenu({
     try {
       await onDropThread(folderName, thread);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Couldn't move");
+      toast.error(err instanceof Error ? err.message : mailSay("couldNotMove"));
     }
   };
 
@@ -716,8 +722,8 @@ export function FoldersTabMenu({
         <button
           ref={triggerRef}
           type="button"
-          title="Folders"
-          aria-label="Folders"
+          title={t("folders")}
+          aria-label={t("folders")}
           className={
             iconOnly
               ? cn(
@@ -811,7 +817,7 @@ export function FoldersTabMenu({
                 }}
               >
                 <Send className="h-4 w-4 shrink-0 text-stone-400" aria-hidden />
-                Sent
+                {t("viewSent")}
               </button>
             ) : null}
             {onOpenDrafts ? (
@@ -842,7 +848,7 @@ export function FoldersTabMenu({
                 }}
               >
                 <Trash2 className="h-4 w-4 shrink-0 text-stone-400" aria-hidden />
-                Trash
+                {t("viewTrash")}
               </button>
             ) : null}
             {onOpenJunk ? (
@@ -858,7 +864,7 @@ export function FoldersTabMenu({
                   className="h-4 w-4 shrink-0 text-stone-400"
                   aria-hidden
                 />
-                Junk
+                {t("viewJunk")}
               </button>
             ) : null}
           </div>
@@ -893,7 +899,9 @@ export function FoldersTabMenu({
                 }
               }
             }}
-            placeholder={naming ? "Name for the new folder…" : "Filter folders…"}
+            placeholder={
+              naming ? t("nameForNewFolder") : t("filterFoldersPlaceholder")
+            }
             readOnly={saving}
             className="w-full rounded-lg border border-teal-600 px-2.5 py-1.5 text-sm outline-none read-only:text-stone-400"
           />
@@ -918,12 +926,12 @@ export function FoldersTabMenu({
               />
             ) : (
               <p className="px-2.5 py-2 text-sm text-stone-400">
-                {nameProblem ?? "Type a name, then press Enter"}
+                {nameProblem ?? t("typeNameThenEnter")}
               </p>
             )}
           </div>
         ) : loading && !folders.length ? (
-          <p className="px-2.5 py-2 text-sm text-stone-400">Loading…</p>
+          <p className="px-2.5 py-2 text-sm text-stone-400">{t("loading")}</p>
         ) : items.length ? (
           <ul className="max-h-[32rem] overflow-y-auto py-1">
             {items.map((item, i) =>
@@ -986,7 +994,7 @@ export function FoldersTabMenu({
           </ul>
         ) : (
           <p className="px-2.5 py-2 text-sm text-stone-400">
-            {q ? "No matching folders" : "No folders yet"}
+            {q ? t("noMatchingFolders") : t("noFoldersYet")}
           </p>
         )}
         {naming ? null : (
@@ -1026,6 +1034,7 @@ export function FolderViewHeader({
   onOpenParent?: (path: string) => void;
   onNavy?: boolean;
 }) {
+  const t = useMailT();
   const parts = folder.name.split("/").filter(Boolean);
   const leaf = parts[parts.length - 1] ?? folder.name;
   /** Each parent with the whole path that opens it. */
@@ -1045,8 +1054,8 @@ export function FolderViewHeader({
     >
       <button
         type="button"
-        title="Back to inbox"
-        aria-label="Back to inbox"
+        title={t("backToInbox")}
+        aria-label={t("backToInbox")}
         className={cn(
           "flex h-8 w-8 shrink-0 items-center justify-center rounded-full",
           // Close to the path it points back along — but not when there is
@@ -1141,6 +1150,7 @@ export function MoveToFolderMenu({
    */
   title?: string;
 }) {
+  const t = useMailT();
   const [open, setOpen] = React.useState(false);
 
   React.useEffect(() => {
@@ -1199,7 +1209,7 @@ export function MoveToFolderMenu({
       }
       setOpen(false);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Couldn't move");
+      toast.error(err instanceof Error ? err.message : mailSay("couldNotMove"));
     } finally {
       setBusy(false);
       setCreating(null);
@@ -1213,7 +1223,7 @@ export function MoveToFolderMenu({
           ref={triggerRef}
           type="button"
           title={title}
-          aria-label="Move to folder"
+          aria-label={t("moveToFolder")}
           aria-expanded={open}
           className={cn(
             "inline-flex h-9 w-9 items-center justify-center rounded-full text-[var(--mail-thread-muted)] hover:bg-[var(--mail-chrome-hover)] hover:text-[var(--mail-thread-fg)] [&_svg]:size-[19px]",
@@ -1257,7 +1267,7 @@ export function MoveToFolderMenu({
                 setQuery("");
               }
             }}
-            placeholder={naming ? "Name for the new folder…" : "Move to…"}
+            placeholder={naming ? t("nameForNewFolder") : t("moveTo")}
             readOnly={busy}
             className="w-full rounded-lg border border-teal-600 px-2.5 py-1.5 text-sm outline-none read-only:text-stone-400"
           />
@@ -1271,7 +1281,7 @@ export function MoveToFolderMenu({
             <button
               type="button"
               className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm text-stone-800 hover:bg-stone-50"
-              title="Moves it to Junk everywhere. It does not report the sender."
+              title={t("junkHint")}
               onClick={() => {
                 setOpen(false);
                 onMoveToJunk();
@@ -1281,7 +1291,7 @@ export function MoveToFolderMenu({
                 className="h-4 w-4 shrink-0 text-stone-400"
                 aria-hidden
               />
-              Junk
+              {t("viewJunk")}
             </button>
           </div>
         ) : null}
@@ -1305,7 +1315,7 @@ export function MoveToFolderMenu({
               />
             ) : (
               <p className="px-2.5 py-2 text-sm text-stone-400">
-                {nameProblem ?? "Type a name, then press Enter"}
+                {nameProblem ?? t("typeNameThenEnter")}
               </p>
             )}
           </div>
@@ -1349,7 +1359,7 @@ export function MoveToFolderMenu({
             )
           ) : (
             <li className="px-2.5 py-2 text-sm text-stone-400">
-              No matching folders
+              {t("noMatchingFolders")}
             </li>
           )}
         </ul>

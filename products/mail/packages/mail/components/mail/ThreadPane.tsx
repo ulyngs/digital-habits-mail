@@ -196,6 +196,7 @@ import type {
   MailScheduledMessage,
   MailThreadDetail,
 } from "@/lib/mail/types";
+import { mailSay, useMailT } from "@/lib/mail/i18n";
 import { cn } from "@/lib/utils";
 
 /**
@@ -498,6 +499,7 @@ export function ThreadPane({
   /** Refresh Sent for the mailbox that just sent. */
   onSent?: (accountEmail: string) => void;
 }) {
+  const t = useMailT();
   const [thread, setThread] = React.useState<MailThreadDetail | null>(null);
   const [loadingOlder, setLoadingOlder] = React.useState(false);
   const [loadingNewer, setLoadingNewer] = React.useState(false);
@@ -625,7 +627,7 @@ export function ThreadPane({
           body: JSON.stringify({ account, id, action }),
         });
         if (action === "sendNow") {
-          toast.success("Sent");
+          toast.success(mailSay("sent"));
           scheduleThreadRefetchAfterSend(account, threadId, setThread);
         }
       } catch (err) {
@@ -2697,7 +2699,7 @@ export function ThreadPane({
     const flatCc = flattenRecipientsForSend(ccList);
     if (!thread || !forwardSource || !flatTo.emails.length || sending) return;
     if (!attachmentsReady) {
-      toast.error("Still preparing attachments…");
+      toast.error(mailSay("stillPreparingAttachments"));
       return;
     }
     const attachments = attachmentPayload();
@@ -2915,7 +2917,7 @@ export function ThreadPane({
       return;
     }
     if (!attachmentsReady) {
-      toast.error("Still preparing attachments…");
+      toast.error(mailSay("stillPreparingAttachments"));
       return;
     }
     // Sending from another account: its Gmail doesn't know this threadId, so
@@ -3657,7 +3659,7 @@ export function ThreadPane({
           aria-live="polite"
         >
           <Loader2 className="h-4 w-4 shrink-0 animate-spin" aria-hidden />
-          Loading message…
+          {t("loadingMessage")}
         </div>
       </div>
     );
@@ -3834,13 +3836,17 @@ export function ThreadPane({
         <div className="relative z-[1] -ml-2 w-[calc(100%+0.5rem)] border-b border-[var(--mail-chrome-border)] bg-[var(--mail-chrome)] pt-1.5">
           <div className="flex h-10 w-full items-center gap-1 pl-7 pr-5">
           <ThreadAction
-            label={`Reply (${formatShortcut(shortcuts.reply)})`}
+            label={`${t("actionReply")} (${formatShortcut(
+              shortcuts.reply
+            )})`}
             icon={Reply}
             className={mode === "reply" ? THREAD_ACTION_ACTIVE_CLASS : undefined}
             onClick={() => startReply(false)}
           />
           <ThreadAction
-            label={`Reply all (${formatShortcut(shortcuts.replyAll)})`}
+            label={`${t("actionReplyAll")} (${formatShortcut(
+              shortcuts.replyAll
+            )})`}
             icon={ReplyAll}
             className={
               mode === "replyAll" ? THREAD_ACTION_ACTIVE_CLASS : undefined
@@ -3848,7 +3854,9 @@ export function ThreadPane({
             onClick={() => startReply(true)}
           />
           <ThreadAction
-            label={`Forward (${formatShortcut(shortcuts.forward)})`}
+            label={`${t("actionForward")} (${formatShortcut(
+              shortcuts.forward
+            )})`}
             icon={Forward}
             className={
               mode === "forward" ? THREAD_ACTION_ACTIVE_CLASS : undefined
@@ -3860,7 +3868,7 @@ export function ThreadPane({
             className="mx-1.5 h-5 w-px shrink-0 bg-[var(--mail-chrome-border)]"
           />
           <ThreadAction
-            label={`${unread ? "Mark as read" : "Mark as unread"} (${formatShortcut(
+            label={`${t(unread ? "markAsRead" : "markAsUnread")} (${formatShortcut(
               shortcuts.toggleUnread
             )})`}
             icon={MailDotIcon}
@@ -3871,7 +3879,9 @@ export function ThreadPane({
             onCancelSnooze={onCancelSnooze}
             currentUntil={snoozedUntil}
             openSignal={snoozeMenuSignal}
-            title={`Snooze (${formatShortcut(shortcuts.snooze)})`}
+            title={`${t("actionSnooze")} (${formatShortcut(
+              shortcuts.snooze
+            )})`}
           />
           <span
             aria-hidden
@@ -3882,9 +3892,17 @@ export function ThreadPane({
             onMoved={onMoveToFolder}
             onMoveToJunk={onJunk}
             openSignal={moveMenuSignal}
-            title={`Move to folder (${formatShortcut(shortcuts.moveToFolder)})`}
+            title={`${t("moveToFolder")} (${formatShortcut(
+              shortcuts.moveToFolder
+            )})`}
           />
-          <ThreadAction label={`Archive (${formatShortcut(shortcuts.archive)})`} icon={Archive} onClick={onArchive} />
+          <ThreadAction
+            label={`${t("actionArchive")} (${formatShortcut(
+              shortcuts.archive
+            )})`}
+            icon={Archive}
+            onClick={onArchive}
+          />
           {/* Already in the bin: the useful action is getting it out again.
               There is no permanent delete here on purpose — it is the one
               action with nothing behind it. */}
@@ -3892,16 +3910,22 @@ export function ThreadPane({
               Getting it back out is not, so that keeps its own action. */}
           {inJunk && onNotJunk ? (
             <ThreadAction
-              label="Not junk"
+              label={t("notJunk")}
               icon={ShieldCheck}
               onClick={onNotJunk}
             />
           ) : null}
           {inTrash && onRestore ? (
-            <ThreadAction label="Restore" icon={ArchiveRestore} onClick={onRestore} />
+            <ThreadAction
+              label={t("restore")}
+              icon={ArchiveRestore}
+              onClick={onRestore}
+            />
           ) : (
             <ThreadAction
-              label={`Delete (${formatShortcut(shortcuts.delete)})`}
+              label={`${t("actionDelete")} (${formatShortcut(
+                shortcuts.delete
+              )})`}
               icon={Trash2}
               onClick={onTrash}
             />
@@ -3913,12 +3937,16 @@ export function ThreadPane({
           {compactToolbar ? null : (
             <>
               <ThreadAction
-                label={`Print thread (${formatShortcut(shortcuts.print)})`}
+                label={`${t("actionPrint")} (${formatShortcut(
+                  shortcuts.print
+                )})`}
                 icon={Printer}
                 onClick={printThread}
               />
               <ThreadAction
-                label={`Pop out chat (${formatShortcut(shortcuts.popOut)})`}
+                label={`${t("popOutChat")} (${formatShortcut(
+                  shortcuts.popOut
+                )})`}
                 icon={PictureInPicture2}
                 onClick={popOutThread}
               />
@@ -3926,7 +3954,7 @@ export function ThreadPane({
           )}
           {mailUsesCrmPeople() ? (
             <ThreadAction
-              label={updatingCrm ? "Asking the AI…" : "Update CRM"}
+              label={t(updatingCrm ? "askingAi" : "updateCrm")}
               icon={updatingCrm ? Loader2 : Sparkles}
               disabled={updatingCrm}
               className={updatingCrm ? "[&_svg]:animate-spin" : undefined}
@@ -3965,14 +3993,18 @@ export function ThreadPane({
                 onPrint={printThread}
                 onPopOut={popOutThread}
                 onToggleFocus={onToggleFocus}
-                printLabel={`Print thread (${formatShortcut(shortcuts.print)})`}
-                popOutLabel={`Pop out chat (${formatShortcut(shortcuts.popOut)})`}
+                printLabel={`${t("actionPrint")} (${formatShortcut(
+                  shortcuts.print
+                )})`}
+                popOutLabel={`${t("popOutChat")} (${formatShortcut(
+                  shortcuts.popOut
+                )})`}
               />
             ) : (
               <>
                 <ZoomControls zoom={zoom} onAdjust={onZoomAdjust} />
                 <ThreadAction
-                  label={focusMode ? "Show mail list" : "Focus mode"}
+                  label={t(focusMode ? "showMailList" : "focusMode")}
                   icon={focusMode ? Minimize2 : Maximize2}
                   onClick={onToggleFocus}
                 />
@@ -4019,7 +4051,7 @@ export function ThreadPane({
                 <PopoverTrigger asChild>
                   <button
                     type="button"
-                    title="See how this thread started"
+                    title={t("threadStarted")}
                     className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-stone-200 bg-white px-2.5 py-1 text-xs text-stone-600 transition-colors hover:bg-stone-50"
                   >
                     Started {shortDate(firstMessage.sentAt)}
@@ -4036,7 +4068,9 @@ export function ThreadPane({
                   <div className="flex items-start justify-between gap-3 px-3.5 pt-3">
                     <div className="min-w-0 text-xs text-stone-500">
                       <p className="truncate">
-                        <span className="text-stone-400">From: </span>
+                        <span className="text-stone-400">
+                          {t("fieldFromColon")}{" "}
+                        </span>
                         <span className="font-semibold text-stone-800">
                           {firstMessage.fromEmail || firstMessage.fromName}
                         </span>
@@ -4050,7 +4084,7 @@ export function ThreadPane({
                     </div>
                     <button
                       type="button"
-                      aria-label="Close"
+                      aria-label={t("close")}
                       className="-mr-1 shrink-0 rounded p-1 text-stone-400 hover:bg-stone-100 hover:text-stone-700"
                       onClick={() => setFirstPeekOpen(false)}
                     >
@@ -4099,7 +4133,7 @@ export function ThreadPane({
                       {loadingToStart ? (
                         <>
                           <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                          Going to the first message…
+                          {t("goingToFirst")}
                         </>
                       ) : (
                         "Go to this message"
@@ -4134,7 +4168,7 @@ export function ThreadPane({
                       type="button"
                       className="inline-flex items-center gap-0.5 font-medium text-stone-700 hover:text-stone-900"
                     >
-                      Earlier
+                      {t("earlier")}
                       <ChevronDown className="h-3 w-3" />
                     </button>
                   </PopoverTrigger>
@@ -4205,7 +4239,7 @@ export function ThreadPane({
                     className="text-[11px] font-medium text-stone-400 hover:text-stone-600"
                     onClick={() => void loadOlderMessages()}
                   >
-                    Load earlier messages
+                    {t("loadEarlier")}
                   </button>
                 )}
               </div>
@@ -4338,7 +4372,7 @@ export function ThreadPane({
                     className="font-semibold text-teal-700 hover:text-teal-800"
                     onClick={() => editScheduled(held)}
                   >
-                    Edit
+                    {t("edit")}
                   </button>
                   <span aria-hidden className="text-stone-300">·</span>
                   <button
@@ -4346,7 +4380,7 @@ export function ThreadPane({
                     className="font-semibold text-teal-700 hover:text-teal-800"
                     onClick={() => void actOnScheduled(held.id, "sendNow")}
                   >
-                    Send now
+                    {t("sendNow")}
                   </button>
                   <span aria-hidden className="text-stone-300">·</span>
                   <button
@@ -4354,7 +4388,7 @@ export function ThreadPane({
                     className="font-semibold text-teal-700 hover:text-teal-800"
                     onClick={() => void actOnScheduled(held.id, "cancel")}
                   >
-                    Cancel
+                    {t("cancel")}
                   </button>
                 </div>
               </div>
@@ -4369,7 +4403,7 @@ export function ThreadPane({
                     className="text-[11px] font-medium text-stone-400 hover:text-stone-600"
                     onClick={() => void loadNewerMessages()}
                   >
-                    Load newer messages
+                    {t("loadNewer")}
                   </button>
                 )}
               </div>
@@ -4378,8 +4412,8 @@ export function ThreadPane({
         </div>
         <button
           type="button"
-          aria-label="Go to the latest message"
-          title="Go to the latest message"
+          aria-label={t("goToLatest")}
+          title={t("goToLatest")}
           /* Kept in the tree and faded, so it arrives and leaves quietly.
              `pointer-events-none` while it is invisible, or it would go on
              taking clicks meant for the message under it. */
@@ -4441,34 +4475,38 @@ export function ThreadPane({
         >
           <button
             type="button"
-            title={`Reply (${formatShortcut(shortcuts.reply)})`}
+            title={`${t("actionReply")} (${formatShortcut(shortcuts.reply)})`}
             className="mail-light-surface inline-flex shrink-0 items-center gap-2 rounded-xl border border-stone-200 bg-white px-5 py-2.5 text-[15px] font-semibold text-stone-800 hover:bg-stone-50"
             onClick={() => startReply(false)}
           >
             <Reply className="h-4 w-4" />
-            Reply
+            {t("actionReply")}
           </button>
           {showReplyAll ? (
             <button
               type="button"
-              title={`Reply all (${formatShortcut(shortcuts.replyAll)})`}
-              aria-label="Reply all"
+              title={`${t("actionReplyAll")} (${formatShortcut(
+                shortcuts.replyAll
+              )})`}
+              aria-label={t("actionReplyAll")}
               className={cn(threadActionClass, compactThreadActions && circleActionClass)}
               onClick={() => startReply(true)}
             >
               <ReplyAll className="h-4 w-4" />
-              {compactThreadActions ? null : "Reply all"}
+              {compactThreadActions ? null : t("actionReplyAll")}
             </button>
           ) : null}
           <button
             type="button"
-            title={`Forward (${formatShortcut(shortcuts.forward)})`}
-            aria-label="Forward"
+            title={`${t("actionForward")} (${formatShortcut(
+              shortcuts.forward
+            )})`}
+            aria-label={t("actionForward")}
             className={cn(threadActionClass, compactThreadActions && circleActionClass)}
             onClick={startForward}
           >
             <Forward className="h-4 w-4" />
-            {compactThreadActions ? null : "Forward"}
+            {compactThreadActions ? null : t("actionForward")}
           </button>
           <EmojiReactionButton
             disabled={sending}
@@ -4521,16 +4559,16 @@ export function ThreadPane({
               <div
                 role="separator"
                 aria-orientation="vertical"
-                aria-label="Resize reply width"
-                title="Drag to resize"
+                aria-label={t("resizeReplyWidth")}
+                title={t("dragToResize")}
                 onPointerDown={startComposerResize("left")}
                 className="absolute inset-y-0 left-0 z-10 w-2 -translate-x-1/2 cursor-col-resize touch-none"
               />
               <div
                 role="separator"
                 aria-orientation="vertical"
-                aria-label="Resize reply width"
-                title="Drag to resize"
+                aria-label={t("resizeReplyWidth")}
+                title={t("dragToResize")}
                 onPointerDown={startComposerResize("right")}
                 className="absolute inset-y-0 right-0 z-10 w-2 translate-x-1/2 cursor-col-resize touch-none"
               />
@@ -4586,17 +4624,17 @@ export function ThreadPane({
                 <span className="block text-[11px] font-semibold text-stone-500">
                   Replying to{" "}
                   {quotedForReply.own
-                    ? "yourself"
+                    ? t("yourself")
                     : quotedForReply.fromName || quotedForReply.fromEmail}
                 </span>
                 <span className="mt-0.5 block truncate text-xs text-stone-600">
-                  {reactionQuoteText(quotedForReply.bodyText) || "(no text)"}
+                  {reactionQuoteText(quotedForReply.bodyText) || t("noText")}
                 </span>
               </span>
               <button
                 type="button"
-                title="Answer the thread instead"
-                aria-label="Answer the thread instead"
+                title={t("answerThreadInstead")}
+                aria-label={t("answerThreadInstead")}
                 className="mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-stone-400 hover:bg-stone-200/70 hover:text-stone-700"
                 onClick={() => setQuoteMessageId(null)}
               >
@@ -4629,7 +4667,7 @@ export function ThreadPane({
                   <div className="flex items-start gap-2">
                     <div className="min-w-0 flex-1">
                       <RecipientField
-                        label="To"
+                        label={t("fieldTo")}
                         values={toList}
                         onChange={setToList}
                         allowSaveList
@@ -4641,13 +4679,15 @@ export function ThreadPane({
                         placeholder={
                           forwarding
                             ? "name@example.com, second@example.com"
-                            : "Add a recipient…"
+                            : t("addRecipient")
                         }
                         inputRef={recipientInputRef}
                       />
                     </div>
                     <div className="flex shrink-0 items-center gap-1.5 rounded-xl border border-stone-200 bg-white px-2.5 py-[7px]">
-                      <span className="text-xs text-muted-foreground">From</span>
+                      <span className="text-xs text-muted-foreground">
+                        {t("fieldFrom")}
+                      </span>
                       {accounts.length > 1 ? (
                         <span className="relative inline-flex items-center">
                           <select
@@ -4672,12 +4712,12 @@ export function ThreadPane({
                   </div>
                   {ccList.length || showCc ? (
                     <RecipientField
-                      label="Cc"
+                      label={t("fieldCc")}
                       values={ccList}
                       onChange={setCcList}
                       collapseAfter={6}
                       ownAccounts={accounts}
-                      placeholder="Add a recipient…"
+                      placeholder={t("addRecipient")}
                     />
                   ) : (
                     <p className="px-1 text-xs text-muted-foreground">
@@ -4686,28 +4726,28 @@ export function ThreadPane({
                         className="text-stone-500 underline-offset-2 hover:text-stone-800 hover:underline"
                         onClick={() => setShowCc(true)}
                       >
-                        Add Cc
+                        {t("addCc")}
                       </button>
                     </p>
                   )}
                 </div>
               ) : (
                 <p className="flex flex-wrap items-center gap-x-1.5 gap-y-1 px-1 text-xs text-muted-foreground">
-                  <span>{forwarding ? "Forwarding to" : "Replying to"}</span>
+                  <span>{t(forwarding ? "forwardingTo" : "replyingTo")}</span>
                   <button
                     type="button"
-                    title="Edit recipients"
+                    title={t("editRecipients")}
                     className="min-w-0 truncate font-semibold text-stone-800 underline-offset-2 hover:underline"
                     onClick={() => setEditRecipients(true)}
                   >
                     {toList.length
                       ? formatRecipientSummary(toList)
-                      : "add recipients…"}
+                      : t("addRecipients")}
                   </button>
                   <span aria-hidden>·</span>
                   <button
                     type="button"
-                    title={ccList.length ? "Edit Cc" : "Add Cc"}
+                    title={t(ccList.length ? "editCc" : "addCc")}
                     className="min-w-0 truncate text-stone-500 underline-offset-2 hover:text-stone-800 hover:underline"
                     onClick={() => {
                       setShowCc(true);
@@ -4743,8 +4783,8 @@ export function ThreadPane({
             </div>
             <button
               type="button"
-              title={replyFocus ? "Show thread" : "Focus mode"}
-              aria-label={replyFocus ? "Show thread" : "Focus mode"}
+              title={t(replyFocus ? "showThread" : "focusMode")}
+              aria-label={t(replyFocus ? "showThread" : "focusMode")}
               aria-pressed={replyFocus}
               className="shrink-0 rounded-md p-1.5 text-stone-500 hover:bg-stone-200/60 hover:text-stone-800"
               onClick={() => setReplyFocus((v) => !v)}
@@ -4827,7 +4867,7 @@ export function ThreadPane({
                     /* Named with its key, the way the actions above the
                        thread are. The same key sends a forward, so the
                        tooltip follows the word on the button. */
-                    title={`${forwarding ? "Forward" : "Send"} (${formatShortcut(
+                    title={`${t(forwarding ? "actionForward" : "send")} (${formatShortcut(
                       shortcuts.send
                     )})`}
                     disabled={
@@ -4848,7 +4888,9 @@ export function ThreadPane({
                         the icon as a descendant and so outranks a plain
                         class on it. */}
                     <SendHorizontal aria-hidden className="!size-3.5" />
-                    {sending ? "Sending…" : forwarding ? "Forward" : "Send"}
+                    {sending
+                      ? t("sending")
+                      : t(forwarding ? "actionForward" : "send")}
                   </Button>
                   {canSendLater && !forwarding ? (
                     <SendLaterMenu
@@ -4856,8 +4898,8 @@ export function ThreadPane({
                       trigger={
                         <button
                           type="button"
-                          aria-label="Send later"
-                          title="Send later"
+                          aria-label={t("sendLater")}
+                          title={t("sendLater")}
                           disabled={
                             sending ||
                             !emailsOfRecipients(toList).length ||
@@ -4885,20 +4927,23 @@ export function ThreadPane({
                 {compactComposer ? null : (
                   <div id="mail-reply-toolbar">
                     <span className="ql-formats">
-                      <button className="ql-bold" aria-label="Bold" />
-                      <button className="ql-italic" aria-label="Italic" />
-                      <button className="ql-underline" aria-label="Underline" />
+                      <button className="ql-bold" aria-label={t("bold")} />
+                      <button className="ql-italic" aria-label={t("italic")} />
+                      <button
+                        className="ql-underline"
+                        aria-label={t("underline")}
+                      />
                       <button
                         className="ql-list"
                         value="bullet"
-                        aria-label="Bullet list"
+                        aria-label={t("bulletList")}
                       />
                       <button
                         className="ql-list"
                         value="ordered"
-                        aria-label="Numbered list"
+                        aria-label={t("numberedList")}
                       />
-                      <button className="ql-link" aria-label="Link" />
+                      <button className="ql-link" aria-label={t("link")} />
                     </span>
                   </div>
                 )}
@@ -4947,7 +4992,7 @@ export function ThreadPane({
                       />
                       <span className="flex flex-col leading-tight">
                         <span className="text-xs font-normal">
-                          Propose CRM updates after sending?
+                          {t("proposeCrmAfterSending")}
                         </span>
                         <span className="text-xs text-stone-500">
                           The AI reads the thread and this reply and proposes
@@ -4962,9 +5007,9 @@ export function ThreadPane({
                       corner it was pointing at. */}
                   <button
                     type="button"
-                    title={forwarding ? "Discard forward" : "Discard reply"}
+                    title={t(forwarding ? "discardForward" : "discardReply")}
                     aria-label={
-                      forwarding ? "Discard forward" : "Discard reply"
+                      t(forwarding ? "discardForward" : "discardReply")
                     }
                     className="rounded p-1 text-stone-500 hover:bg-stone-100 hover:text-stone-800"
                     onClick={discardComposer}
@@ -4997,7 +5042,7 @@ export function ThreadPane({
               className="text-xs text-stone-500 underline-offset-2 hover:text-stone-800 hover:underline"
               onClick={() => setShowPreview(true)}
             >
-              Preview
+              {t("preview")}
             </button>
             {/* Asked the way round it is answered: quoting the history is
                 what a reply does, so the box is ticked and unticking it is
@@ -5028,7 +5073,7 @@ export function ThreadPane({
                     className="pointer-events-none absolute h-3 w-3 text-stone-700 opacity-0 peer-checked:opacity-100"
                   />
                 </span>
-                Quote history
+                {t("quoteHistory")}
               </label>
             ) : null}
             {/* The same drawn box as Quote history. This is the forward's
@@ -5080,7 +5125,7 @@ export function ThreadPane({
             ) : null}
             {!forwarding && mode === "reply" && chatStyle ? (
               <p className="text-[11px] text-stone-400">
-                Remembered for this conversation
+                {t("rememberedForConversation")}
               </p>
             ) : null}
           </div>
@@ -5157,7 +5202,7 @@ export function ThreadPane({
                   attachmentsReady &&
                   (forwarding || replyText.trim() || attachItems.length)
               )}
-              sendLabel={forwarding ? "Forward" : "Send"}
+              sendLabel={t(forwarding ? "actionForward" : "send")}
               onSend={() => void (forwarding ? sendForward() : send())}
               onBack={() => setShowPreview(false)}
             />
@@ -5172,7 +5217,7 @@ export function ThreadPane({
           opposite of what a last chance should look like. */}
       {confirmDiscard ? (
         <SettingsDialog
-          title={forwarding ? "Discard forward?" : "Discard draft?"}
+          title={t(forwarding ? "discardForwardAsk" : "discardDraftAsk")}
           width="w-[400px]"
           bare
           onClose={() => setConfirmDiscard(false)}
@@ -5183,7 +5228,7 @@ export function ThreadPane({
                 className={settingsSecondaryButton}
                 onClick={() => setConfirmDiscard(false)}
               >
-                Keep draft
+                {t("keepDraft")}
               </button>
               {/* Focused on arrival, so Enter answers the question the way
                   it answers every other dialog — and so the keys go to the
@@ -5199,13 +5244,13 @@ export function ThreadPane({
                   discardComposer();
                 }}
               >
-                Discard
+                {t("discard")}
               </button>
             </>
           }
         >
           <p className="text-sm text-stone-600">
-            Your unsent message will be deleted.
+            {t("unsentWillBeDeleted")}
           </p>
         </SettingsDialog>
       ) : null}
@@ -5247,6 +5292,7 @@ export function ThreadPane({
  * so the day is said once, where it changes, the way a chat says it.
  */
 function DayHeading({ iso }: { iso: string | null }) {
+  const t = useMailT();
   if (!iso) return null;
   return (
     /* The same small capitals the mail list puts over TODAY and
@@ -5264,17 +5310,18 @@ function DayHeading({ iso }: { iso: string | null }) {
          such as the button that fetches older messages. */
       className="pb-1 pt-3 text-center text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--mail-chrome-faint)] first:pt-0"
     >
-      {chatDayLabel(iso)}
+      {chatDayLabel(iso, t)}
     </p>
   );
 }
 
 function PartSeam({ onView }: { onView?: () => void }) {
+  const t = useMailT();
   return (
     <div className="flex items-center gap-3 py-2" role="separator">
       <div className="h-px flex-1 bg-stone-200" />
       <p className="shrink-0 text-[11px] text-stone-400">
-        Older messages continue in an earlier part
+        {t("olderInEarlierPart")}
         {onView ? (
           <>
             {" · "}
@@ -5283,7 +5330,7 @@ function PartSeam({ onView }: { onView?: () => void }) {
               className="font-medium text-teal-700 hover:underline"
               onClick={onView}
             >
-              View
+              {t("view")}
             </button>
           </>
         ) : null}
@@ -5343,7 +5390,7 @@ function toastCrmNotesResult(
       .join("\n") ||
     result.skipped ||
     "Nothing new to add to Notes.";
-  toast.message("No CRM note changes", {
+  toast.message(mailSay("noCrmNoteChanges"), {
     id: toastId,
     description: [context, why].filter(Boolean).join("\n\n"),
     duration: 10_000,
@@ -5448,6 +5495,7 @@ function PopoutStrip({
   onShow: () => void;
   onBringBack: () => void;
 }) {
+  const t = useMailT();
   const ref = React.useRef<HTMLDivElement>(null);
 
   /**
@@ -5471,7 +5519,7 @@ function PopoutStrip({
       className="flex items-center gap-1.5 border-t border-stone-200 bg-[var(--mail-thread)] px-8 py-3 text-[13px] text-stone-500 outline-none"
     >
       <PictureInPicture2 className="h-4 w-4 shrink-0" aria-hidden />
-      <span>Answering in a pop-out window</span>
+      <span>{t("answeringInPopout")}</span>
       <span aria-hidden className="text-stone-300">
         ·
       </span>
@@ -5480,7 +5528,7 @@ function PopoutStrip({
         className="font-semibold text-teal-700 hover:text-teal-800"
         onClick={onShow}
       >
-        Show
+        {t("show")}
       </button>
       <span aria-hidden className="text-stone-300">
         ·
@@ -5490,7 +5538,7 @@ function PopoutStrip({
         className="font-semibold text-teal-700 hover:text-teal-800"
         onClick={onBringBack}
       >
-        Bring back
+        {t("bringBack")}
       </button>
     </div>
   );
@@ -5524,6 +5572,7 @@ function ThreadToolbarOverflow({
   printLabel: string;
   popOutLabel: string;
 }) {
+  const t = useMailT();
   const [open, setOpen] = React.useState(false);
   const row =
     "flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-left text-sm text-stone-800 hover:bg-[var(--mail-chrome-hover)]";
@@ -5538,8 +5587,8 @@ function ThreadToolbarOverflow({
           type="button"
           variant="ghost"
           size="icon"
-          aria-label="More"
-          title="More"
+          aria-label={t("more")}
+          title={t("more")}
           className={THREAD_ACTION_CLASS}
         >
           <MoreHorizontal />
@@ -5563,13 +5612,13 @@ function ThreadToolbarOverflow({
           ) : (
             <Maximize2 className="h-4 w-4 shrink-0 text-stone-400" aria-hidden />
           )}
-          {focusMode ? "Show mail list" : "Focus mode"}
+          {t(focusMode ? "showMailList" : "focusMode")}
         </button>
         {/* The size stays a pair of buttons rather than becoming two more
             rows: it is set by trying it, and a menu that shut on every
             press would be the wrong shape for that. */}
         <div className="flex items-center justify-between gap-2 px-2 py-1.5 text-sm text-stone-800">
-          Text size
+          {t("textSize")}
           <ZoomControls zoom={zoom} onAdjust={onZoomAdjust} />
         </div>
       </MailPopoverContent>

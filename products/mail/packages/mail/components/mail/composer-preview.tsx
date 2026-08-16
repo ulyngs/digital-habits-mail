@@ -14,6 +14,7 @@ import { Eye, SendHorizontal } from "lucide-react";
 import { fetchSignatureSettings } from "@/components/mail/SignatureDialog";
 import { SignatureContent } from "@/components/mail/signature-view";
 import { Button } from "@/components/ui/button";
+import { useMailT } from "@/lib/mail/i18n";
 
 /**
  * The signature as it will send, below the message body.
@@ -62,6 +63,7 @@ export function SignatureMetaControls({
   onEdit: () => void;
   onRemove: () => void;
 }) {
+  const t = useMailT();
   if (!included || !configured) {
     return (
       <button
@@ -69,28 +71,29 @@ export function SignatureMetaControls({
         className={`${className} ${SIGNATURE_META_BUTTON}`}
         onClick={onAdd}
       >
-        Add signature
+        {t("addSignature")}
       </button>
     );
   }
   return (
     <span className={`flex min-w-0 items-center gap-2 ${className}`}>
       <span className="min-w-0 truncate">
-        Signature: <span className="text-stone-700">{account}</span>
+        {t("signatureColon")}
+<span className="text-stone-700">{account}</span>
       </span>
       <button
         type="button"
         className={SIGNATURE_META_BUTTON}
         onClick={onEdit}
       >
-        Edit
+        {t("edit")}
       </button>
       <button
         type="button"
         className={SIGNATURE_META_BUTTON}
         onClick={onRemove}
       >
-        Remove
+        {t("remove")}
       </button>
     </span>
   );
@@ -149,6 +152,7 @@ export function SentPreview({
   onSend: () => void;
   onBack: () => void;
 }) {
+  const t = useMailT();
   const [signature, setSignature] = React.useState("");
   const [showFullQuote, setShowFullQuote] = React.useState(false);
 
@@ -182,7 +186,7 @@ export function SentPreview({
           className="shrink-0 rounded-full border border-white/40 px-3.5 py-1 text-xs font-medium text-white hover:bg-white/10"
           onClick={onBack}
         >
-          Back to editing
+          {t("backToEditing")}
         </button>
       </div>
 
@@ -247,7 +251,7 @@ export function SentPreview({
                   className="mt-1 text-blue-600 underline-offset-2 hover:underline"
                   onClick={() => setShowFullQuote(false)}
                 >
-                  Show less
+                  {t("showLess")}
                 </button>
               </>
             ) : (
@@ -262,7 +266,7 @@ export function SentPreview({
                   className="whitespace-nowrap text-blue-600 underline-offset-2 hover:underline"
                   onClick={() => setShowFullQuote(true)}
                 >
-                  Show more
+                  {t("showMore")}
                 </button>
               </p>
             )}

@@ -33,10 +33,12 @@ import {
   MAX_REST_ZOOM,
   readMailRest,
   REST_IMAGE_MAX_EDGE,
+  restCaptionText,
   subscribeMailRest,
   writeMailRest,
   type MailRestState,
 } from "@/lib/mail/rest-image";
+import { useMailT } from "@/lib/mail/i18n";
 import { cn } from "@/lib/utils";
 
 /** A picture narrower than this is a stamp, not a rest. */
@@ -115,6 +117,7 @@ function HoverRemove({
 }
 
 export function MailRestPanel() {
+  const t = useMailT();
   const rest = useMailRest();
   const [editing, setEditing] = React.useState(false);
   const [captionEditing, setCaptionEditing] = React.useState(false);
@@ -287,7 +290,7 @@ export function MailRestPanel() {
                   className="flex items-center gap-2 rounded-full bg-white/80 px-4 py-2 text-sm font-medium text-stone-700 shadow-sm hover:bg-white"
                 >
                   <ImageIcon className="h-4 w-4" aria-hidden />
-                  Choose a picture
+                  {t("chooseAPicture")}
                 </button>
               </div>
             )}
@@ -299,7 +302,7 @@ export function MailRestPanel() {
                 className="pointer-events-auto rounded-lg bg-stone-900/80 px-2.5 py-1 text-xs font-medium text-white backdrop-blur hover:bg-stone-900"
                 onClick={() => fileRef.current?.click()}
               >
-                Replace
+                {t("replace")}
               </button>
               <button
                 type="button"
@@ -311,10 +314,10 @@ export function MailRestPanel() {
                 onClick={() => setEditing((v) => !v)}
                 disabled={!shownImage}
               >
-                Edit
+                {t("edit")}
               </button>
               <HoverRemove
-                label="Remove the picture"
+                label={t("removeThePicture")}
                 group="img"
                 onClick={removeImage}
               />
@@ -323,8 +326,8 @@ export function MailRestPanel() {
             {/* Resize, bottom right, on hover. */}
             <button
               type="button"
-              aria-label="Resize the picture"
-              title="Drag to resize"
+              aria-label={t("resizeThePicture")}
+              title={t("dragToResize")}
               onPointerDown={(e) => {
                 const startWidth = rest.width;
                 drag(e, (dx) =>
@@ -385,7 +388,7 @@ export function MailRestPanel() {
                 max={MAX_REST_ZOOM}
                 step={0.01}
                 value={rest.crop.zoom}
-                aria-label="Zoom"
+                aria-label={t("zoom")}
                 className="ml-1 w-28 accent-teal-700"
                 onChange={(e) => {
                   const zoom = clampZoom(Number(e.target.value));
@@ -398,7 +401,7 @@ export function MailRestPanel() {
                 className="rounded-full bg-teal-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-teal-700"
                 onClick={() => setEditing(false)}
               >
-                Done
+                {t("done")}
               </button>
             </div>
           ) : null}
@@ -412,7 +415,7 @@ export function MailRestPanel() {
       {hasCaption ? (
         <div className="group/cap flex max-w-[42rem] items-end justify-center gap-2">
           <HoverRemove
-            label="Remove the line"
+            label={t("removeTheLine")}
             group="cap"
             onClick={removeCaption}
           />
@@ -420,10 +423,10 @@ export function MailRestPanel() {
             ref={captionRef}
             role="textbox"
             tabIndex={0}
-            aria-label="Caption"
+            aria-label={t("caption")}
             contentEditable={captionEditing}
             suppressContentEditableWarning
-            title={captionEditing ? undefined : "Click to edit"}
+            title={captionEditing ? undefined : t("clickToEdit")}
             onClick={() => setCaptionEditing(true)}
             onFocus={() => setCaptionEditing(true)}
             onBlur={commitCaption}
@@ -434,7 +437,9 @@ export function MailRestPanel() {
               }
               if (e.key === "Escape") {
                 if (captionRef.current) {
-                  captionRef.current.textContent = rest.caption;
+                  captionRef.current.textContent = restCaptionText(
+                    rest.caption
+                  );
                 }
                 (e.currentTarget as HTMLElement).blur();
               }
@@ -447,12 +452,12 @@ export function MailRestPanel() {
             )}
             style={{ fontSize: rest.captionSize }}
           >
-            {rest.caption}
+            {restCaptionText(rest.caption)}
           </span>
           <button
             type="button"
-            aria-label="Resize the line"
-            title="Drag to resize"
+            aria-label={t("resizeTheLine")}
+            title={t("dragToResize")}
             onPointerDown={(e) => {
               const startSize = rest.captionSize;
               // Sideways only, and slowly: the handle sits beside the words,
@@ -488,7 +493,7 @@ export function MailRestPanel() {
               className="pointer-events-auto flex items-center gap-1.5 text-xs text-stone-400 hover:text-stone-600"
             >
               <ImageIcon className="h-3.5 w-3.5" aria-hidden />
-              Add a picture
+              {t("addAPicture")}
             </button>
           )}
           {hasCaption ? null : (
@@ -498,7 +503,7 @@ export function MailRestPanel() {
               className="pointer-events-auto flex items-center gap-1.5 text-xs text-stone-400 hover:text-stone-600"
             >
               <Pencil className="h-3.5 w-3.5" aria-hidden />
-              Add a line
+              {t("addALine")}
             </button>
           )}
         </div>

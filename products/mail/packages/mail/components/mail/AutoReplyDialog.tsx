@@ -15,6 +15,7 @@ import {
 } from "@/components/mail/settings-ui";
 import { DateField } from "@/components/ui/calendar";
 import { RichTextEditor } from "@/components/ui/RichTextEditor";
+import { useMailT } from "@/lib/mail/i18n";
 import { cn } from "@/lib/utils";
 import { mailOrgAiAllowed } from "@/lib/mail/product-flavor";
 import { mailApiFetch } from "@/lib/mail/api";
@@ -56,6 +57,7 @@ function TodayButton({
   label: string;
   onClick: () => void;
 }) {
+  const t = useMailT();
   return (
     <button
       type="button"
@@ -63,7 +65,7 @@ function TodayButton({
       onClick={onClick}
       className="rounded px-1 text-[11px] font-medium text-stone-500 hover:text-stone-900 hover:underline"
     >
-      Today
+      {t("today")}
     </button>
   );
 }
@@ -117,6 +119,7 @@ export function AutoReplyDialog({
   /** Fired with the fresh server state after a successful save. */
   onSaved: (updated: AutoReplyDto) => void;
 }) {
+  const t = useMailT();
   const [items, setItems] = React.useState<AutoReplyDto[] | null>(null);
   const [loadError, setLoadError] = React.useState<string | null>(null);
   const [active, setActive] = React.useState<string | null>(null);
@@ -140,7 +143,7 @@ export function AutoReplyDialog({
           error?: string;
         };
         if (!res.ok || !json.autoReplies) {
-          throw new Error(json.error || "Couldn't load auto-reply settings");
+          throw new Error(json.error || t("couldNotLoadAutoReply"));
         }
         if (cancelled) return;
         setItems(json.autoReplies);
@@ -154,7 +157,9 @@ export function AutoReplyDialog({
       } catch (err) {
         if (!cancelled) {
           setLoadError(
-            err instanceof Error ? err.message : "Couldn't load auto-reply settings"
+            err instanceof Error
+              ? err.message
+              : t("couldNotLoadAutoReply")
           );
         }
       }
@@ -199,7 +204,7 @@ export function AutoReplyDialog({
         error?: string;
       };
       if (!res.ok || !json.draft) {
-        throw new Error(json.error || "Couldn't draft the message");
+        throw new Error(json.error || t("couldNotDraft"));
       }
       updateForm(account, {
         subject: json.draft.subject,
@@ -207,7 +212,7 @@ export function AutoReplyDialog({
       });
       setLoadStamp((n) => n + 1);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Couldn't draft the message");
+      toast.error(err instanceof Error ? err.message : t("couldNotDraft"));
     } finally {
       setDrafting(false);
     }
@@ -218,11 +223,11 @@ export function AutoReplyDialog({
     if (!form) return;
     const plainBody = form.bodyHtml.replace(/<[^>]*>/g, "").trim();
     if (form.enabled && !plainBody) {
-      toast.error("Write an auto-reply message before turning it on");
+      toast.error(t("writeAutoReplyFirst"));
       return;
     }
     if (form.firstDay && form.lastDay && form.lastDay < form.firstDay) {
-      toast.error("The last day can't be before the first day");
+      toast.error(t("lastDayBeforeFirst"));
       return;
     }
     setSaving(true);
@@ -243,7 +248,7 @@ export function AutoReplyDialog({
       });
       const json = (await res.json()) as { autoReply?: AutoReplyDto; error?: string };
       if (!res.ok || !json.autoReply) {
-        throw new Error(json.error || "Couldn't save auto-reply");
+        throw new Error(json.error || t("couldNotSaveAutoReply"));
       }
       setItems((prev) =>
         prev?.map((a) => (a.account === account ? json.autoReply! : a)) ?? prev
@@ -255,7 +260,9 @@ export function AutoReplyDialog({
           : `Auto-reply off for ${account}`
       );
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Couldn't save auto-reply");
+      toast.error(
+        err instanceof Error ? err.message : t("couldNotSaveAutoReply")
+      );
     } finally {
       setSaving(false);
     }
@@ -268,7 +275,7 @@ export function AutoReplyDialog({
 
   return (
     <SettingsDialog
-      title="Out-of-office auto-reply"
+      title={t("autoReplyTitle")}
       width="w-[640px]"
       onClose={onClose}
       nav={
@@ -290,7 +297,7 @@ export function AutoReplyDialog({
                 {autoReplyActive(a) ? (
                   <span
                     className="h-1.5 w-1.5 rounded-full bg-emerald-500"
-                    title="Auto-reply on"
+                    title={t("autoReplyOn")}
                   />
                 ) : null}
               </button>
@@ -306,7 +313,7 @@ export function AutoReplyDialog({
               className={settingsSecondaryButton}
               onClick={onClose}
             >
-              Cancel
+              {t("cancel")}
             </button>
             <button
               type="button"
@@ -317,7 +324,7 @@ export function AutoReplyDialog({
               {saving ? (
                 <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
               ) : null}
-              Save
+              {t("save")}
             </button>
           </>
         ) : null
@@ -328,7 +335,7 @@ export function AutoReplyDialog({
             {loadError ?? (
               <>
                 <Loader2 className="h-4 w-4 animate-spin" />
-                Loading current settings…
+                {t("loadingSettings")}
               </>
             )}
           </div>
@@ -340,40 +347,40 @@ export function AutoReplyDialog({
               </div>
             ) : activeItem?.needsReconnect ? (
               <div className="py-8 text-sm text-muted-foreground">
-                The connection for <strong>{activeItem.account}</strong> predates
-                auto-reply support. Reconnect it via the Accounts menu (under the
-                Mail heading), then reopen this dialog.
+                {t("autoReplyNeedsReconnectBefore")}
+                <strong>{activeItem.account}</strong>
+                {t("autoReplyNeedsReconnectAfter")}
               </div>
             ) : form && active ? (
               <div className="space-y-4">
                 <SettingsGroup>
                   <SettingsRow
-                    label="Auto-reply"
+                    label={t("autoReply")}
                     control={
                       <SettingsToggle
                         checked={form.enabled}
                         onChange={(next) =>
                           updateForm(active, { enabled: next })
                         }
-                        label="Auto-reply"
+                        label={t("autoReply")}
                       />
                     }
                   />
                 </SettingsGroup>
 
                 <div className="space-y-2">
-                  <SectionLabel>When</SectionLabel>
+                  <SectionLabel>{t("when")}</SectionLabel>
                   <div className="flex items-start gap-3">
                     <div className="flex flex-col items-start gap-1">
                       <DateField
-                        ariaLabel="First day"
+                        ariaLabel={t("firstDay")}
                         value={form.firstDay}
                         onChange={(key) =>
                           updateForm(active, { firstDay: key })
                         }
                       />
                       <TodayButton
-                        label="First day today"
+                        label={t("firstDayToday")}
                         onClick={() =>
                           updateForm(active, { firstDay: msToDateInput(Date.now()) })
                         }
@@ -382,8 +389,8 @@ export function AutoReplyDialog({
                     <span className="py-1.5 text-stone-400">→</span>
                     <div className="flex flex-col items-start gap-1">
                       <DateField
-                        ariaLabel="Last day (optional)"
-                        placeholder="No end date"
+                        ariaLabel={t("lastDayOptional")}
+                        placeholder={t("noEndDate")}
                         value={form.lastDay}
                         // The calendar cannot offer a day before the first one.
                         min={form.firstDay || undefined}
@@ -391,7 +398,7 @@ export function AutoReplyDialog({
                         onChange={(key) => updateForm(active, { lastDay: key })}
                       />
                       <TodayButton
-                        label="Last day today"
+                        label={t("lastDayToday")}
                         onClick={() =>
                           updateForm(active, { lastDay: msToDateInput(Date.now()) })
                         }
@@ -402,7 +409,7 @@ export function AutoReplyDialog({
 
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
-                    <SectionLabel>Message</SectionLabel>
+                    <SectionLabel>{t("message")}</SectionLabel>
                     {/* Writing the message is the only part that needs an AI
                         key. Setting the out-of-office is a plain provider
                         setting, so the rest of this dialog is not gated. */}
@@ -416,10 +423,10 @@ export function AutoReplyDialog({
                       {drafting ? (
                         <>
                           <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                          Drafting…
+                          {t("drafting")}
                         </>
                       ) : (
-                        "Draft it for me"
+                        t("draftForMe")
                       )}
                     </button>
                     ) : null}
@@ -433,7 +440,7 @@ export function AutoReplyDialog({
                     {activeItem?.provider === "outlook" ? null : (
                     <label className="flex items-center gap-2 border-b border-stone-200 bg-stone-50 px-4 py-2.5">
                       <span className="shrink-0 text-[11px] font-semibold uppercase tracking-wider text-stone-500">
-                        Subject
+                        {t("subject")}
                       </span>
                       <input
                         type="text"
@@ -441,7 +448,7 @@ export function AutoReplyDialog({
                         onChange={(e) =>
                           updateForm(active, { subject: e.target.value })
                         }
-                        placeholder="e.g. Away until 5 Jan"
+                        placeholder={t("autoReplySubjectPlaceholder")}
                         className="min-w-0 flex-1 bg-transparent text-[15px] outline-none placeholder:text-stone-400"
                       />
                     </label>
@@ -451,14 +458,14 @@ export function AutoReplyDialog({
                       className="ooo-editor"
                       defaultValue={form.bodyHtml}
                       onChange={(html) => updateForm(active, { bodyHtml: html })}
-                      placeholder="Auto-reply message…"
+                      placeholder={t("autoReplyBodyPlaceholder")}
                       minHeight={150}
                     />
                   </div>
 
                   <div className="flex items-center justify-between gap-4">
                     <p className="text-xs text-muted-foreground">
-                      Sent at most once every 4 days per contact
+                      {t("autoReplyRate")}
                     </p>
                     <label className="flex shrink-0 items-center gap-1.5 text-xs text-stone-600">
                       <input
@@ -468,7 +475,7 @@ export function AutoReplyDialog({
                           updateForm(active, { restrictToContacts: e.target.checked })
                         }
                       />
-                      Only send to Contacts
+                      {t("onlySendToContacts")}
                     </label>
                   </div>
                 </div>

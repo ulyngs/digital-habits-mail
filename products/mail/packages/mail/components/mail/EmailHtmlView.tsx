@@ -11,6 +11,7 @@ import {
 } from "@/lib/mail/image-proxy";
 import { openExternalUrl } from "@/lib/native-shell";
 import { requestMailComposeTo } from "@/lib/mail/compose-to";
+import { mailSay, useMailT } from "@/lib/mail/i18n";
 import {
   mailLinkMenuModel,
   type MailLinkMenuModel,
@@ -157,7 +158,7 @@ async function followMailLink(target: string): Promise<void> {
     return;
   }
   const ok = await openExternalUrl(target);
-  if (!ok) toast.error("Couldn't open link");
+  if (!ok) toast.error(mailSay("couldNotOpenLink"));
 }
 
 /**
@@ -1061,6 +1062,7 @@ function LinkContextMenu({
   y: number;
   onDismiss: () => void;
 }) {
+  const t = useMailT();
   const ref = React.useRef<HTMLDivElement>(null);
   const [placed, setPlaced] = React.useState({ left: x, top: y });
 
@@ -1102,7 +1104,7 @@ function LinkContextMenu({
     <div
       ref={ref}
       role="menu"
-      aria-label="Link"
+      aria-label={t("link")}
       style={{ left: placed.left, top: placed.top }}
       /* Portalled, so its events travel up the React tree rather than the
          DOM: without this a click in here reaches the message view around
@@ -1141,7 +1143,7 @@ function LinkContextMenu({
           onDismiss();
           void copyText(model.copyText).then((ok) => {
             if (ok) toast(model.kind === "mailto" ? "Address copied" : "Link copied");
-            else toast.error("Couldn't copy");
+            else toast.error(mailSay("couldNotCopy"));
           });
         }}
       >
@@ -1238,6 +1240,7 @@ export function EmailHtmlView({
   /** Fired for dblclick on the email body (not on links). */
   onContentDoubleClick?: () => void;
 }) {
+  const t = useMailT();
   const iframeRef = React.useRef<HTMLIFrameElement>(null);
   const onDblClickRef = React.useRef(onContentDoubleClick);
   onDblClickRef.current = onContentDoubleClick;
@@ -1427,12 +1430,12 @@ export function EmailHtmlView({
           aria-live="polite"
         >
           <Loader2 className="h-4 w-4 shrink-0 animate-spin" aria-hidden />
-          Loading message…
+          {t("loadingMessage")}
         </div>
       ) : null}
       <iframe
         ref={iframeRef}
-        title="Email content"
+        title={t("emailContent")}
         srcDoc={srcDoc}
         sandbox="allow-same-origin allow-scripts allow-popups allow-popups-to-escape-sandbox"
         referrerPolicy="no-referrer"

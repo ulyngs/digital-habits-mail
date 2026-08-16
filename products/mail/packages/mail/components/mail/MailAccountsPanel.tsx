@@ -47,7 +47,13 @@ import {
   SettingsStackedRow,
 } from "@/components/mail/settings-ui";
 import { Button } from "@/components/ui/button";
+import {
+  readAccountOrder,
+  sortAccountsByOrder,
+  writeAccountOrder,
+} from "@/lib/mail/account-order";
 import { mailApiJson as apiJson } from "@/lib/mail/api";
+import { currentMailLocale, useMailT } from "@/lib/mail/i18n";
 import { mailUsesCrmPeople } from "@/lib/mail/product-flavor";
 import { useMailConnect } from "@/components/mail/use-mail-connect";
 import type { GmailAccountDto } from "@/lib/crm-contact-index";
@@ -58,6 +64,18 @@ import { cn } from "@/lib/utils";
 export type MailAccountRow = GmailAccountDto & {
   provider: "gmail" | "outlook";
 };
+
+/** The rows, in the order the reader dragged them into. */
+function inReaderOrder(rows: MailAccountRow[]): MailAccountRow[] {
+  const byEmail = new Map(rows.map((row) => [row.email.toLowerCase(), row]));
+  const emails = sortAccountsByOrder(
+    rows.map((row) => row.email),
+    readAccountOrder()
+  );
+  return emails
+    .map((email) => byEmail.get(email.toLowerCase()))
+    .filter((row): row is MailAccountRow => Boolean(row));
+}
 /**
  * The name that goes on mail from this account.
  *
@@ -70,6 +88,7 @@ export type MailAccountRow = GmailAccountDto & {
  * Outlook never knows it — Graph decides the name itself.
  */
 function SenderNameRow({ account }: { account: string }) {
+  const t = useMailT();
   const [settings, setSettings] = React.useState<{
     provider: string;
     known: boolean;
@@ -99,7 +118,7 @@ function SenderNameRow({ account }: { account: string }) {
 
   return (
     <div className="flex items-center gap-2 border-t border-dashed border-stone-200 px-3 py-1.5 text-xs">
-      <span className="shrink-0 text-stone-500">Name on your mail</span>
+      <span className="shrink-0 text-stone-500">{t("nameOnYourMail")}</span>
       <span className="min-w-0 flex-1 truncate text-stone-700">
         {settings.provider}
       </span>
@@ -109,7 +128,7 @@ function SenderNameRow({ account }: { account: string }) {
         rel="noreferrer"
         className="shrink-0 font-medium text-teal-700 hover:underline"
       >
-        change in Gmail
+        {t("changeInGmail")}
       </a>
     </div>
   );
@@ -135,6 +154,7 @@ function SortableAccountRow({
   onEditAutoReply: () => void;
   onEndAutoReply: () => void;
 }) {
+  const t = useMailT();
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id: account.email });
   const away = autoReply !== undefined && autoReplyActive(autoReply);
@@ -163,7 +183,7 @@ function SortableAccountRow({
       <button
         type="button"
         className="shrink-0 cursor-grab touch-none rounded p-1 text-stone-300 hover:text-stone-500 active:cursor-grabbing"
-        aria-label={`Reorder ${account.email}`}
+        aria-label={t("reorderAccount", { email: account.email })}
         {...attributes}
         {...listeners}
       >
@@ -185,9 +205,9 @@ function SortableAccountRow({
           {/* A connected account that is not hidden is live, so saying so
               said nothing. Only the two states worth reporting are named. */}
           {!account.inMailTab
-            ? "hidden from Mail"
+            ? t("hiddenFromMail")
             : account.lastSyncError
-              ? `error: ${account.lastSyncError}`
+              ? t("errorPrefix", { message: account.lastSyncError })
               : isOutlook
                 ? "Outlook"
                 : "Gmail"}
@@ -201,15 +221,15 @@ function SortableAccountRow({
           className="h-7 w-7 text-muted-foreground hover:text-stone-900"
           aria-label={
             account.inMailTab
-              ? `Hide ${account.email} from the Mail tab`
-              : `Show ${account.email} in the Mail tab`
+              ? t("hideAccountFromMailTab", { email: account.email })
+              : t("showAccountInMailTab", { email: account.email })
           }
           title={
             account.inMailTab
               ? mailUsesCrmPeople()
-                ? "Hide from Mail tab (stays connected for CRM sync)"
-                : "Hide from Mail tab (the account stays connected)"
-              : "Show in Mail tab"
+                ? t("hideFromMailTabCrm")
+                : t("hideFromMailTab")
+              : t("showInMailTab")
           }
           onClick={onToggleInMailTab}
         >
@@ -226,13 +246,11 @@ function SortableAccountRow({
           className="h-7 w-7 text-muted-foreground hover:text-stone-900"
           aria-label={
             reconnecting
-              ? `Opening permissions for ${account.email}`
-              : `Reconnect ${account.email}`
+              ? t("openingPermissions", { email: account.email })
+              : t("reconnectAccount", { email: account.email })
           }
           title={
-            reconnecting
-              ? "Opening Google / Microsoft…"
-              : "Reconnect (renews permissions)"
+            reconnecting ? t("openingProviders") : t("reconnectTitle")
           }
           disabled={reconnecting}
           onClick={onReconnect}
@@ -248,8 +266,8 @@ function SortableAccountRow({
           variant="ghost"
           size="icon"
           className="h-7 w-7 text-muted-foreground hover:text-red-600"
-          aria-label={`Disconnect ${account.email}`}
-          title="Disconnect"
+          aria-label={t("disconnectAccount", { email: account.email })}
+          title={t("disconnect")}
           onClick={onDisconnect}
         >
           <Trash2 className="h-3.5 w-3.5" />
@@ -266,9 +284,16 @@ function SortableAccountRow({
               <span className="flex min-w-0 items-center gap-1.5 font-medium text-emerald-700">
                 <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-500" />
                 <span className="truncate">
-                  Out of office
+                  {t("outOfOffice")}
                   {autoReply.endTime !== null
-                    ? ` · until ${new Date(autoReply.endTime - 1).toLocaleDateString(undefined, { day: "numeric", month: "short" })}`
+                    ? ` · ${t("outOfOfficeUntil", {
+                        date: new Date(
+                          autoReply.endTime - 1
+                        ).toLocaleDateString(currentMailLocale(), {
+                          day: "numeric",
+                          month: "short",
+                        }),
+                      })}`
                     : ""}
                 </span>
               </span>
@@ -278,14 +303,14 @@ function SortableAccountRow({
                   className="font-medium text-teal-700 hover:underline"
                   onClick={onEditAutoReply}
                 >
-                  Edit
+                  {t("edit")}
                 </button>
                 <button
                   type="button"
                   className="font-medium text-teal-700 hover:underline"
                   onClick={onEndAutoReply}
                 >
-                  End
+                  {t("end")}
                 </button>
               </span>
             </>
@@ -295,17 +320,17 @@ function SortableAccountRow({
                mailbox settings, so the reply has to be set where the mailbox
                lives. */
             <span className="text-stone-400">
-              Out-of-office reply · not available for this mailbox
+              {t("outOfOfficeUnavailable")}
             </span>
           ) : (
             <>
-              <span className="text-stone-500">Out-of-office reply</span>
+              <span className="text-stone-500">{t("outOfOfficeReply")}</span>
               <button
                 type="button"
                 className="shrink-0 font-medium text-teal-700 hover:underline"
                 onClick={onEditAutoReply}
               >
-                Set up…
+                {t("setUp")}
               </button>
             </>
           )}
@@ -358,6 +383,7 @@ function ConnectButton({
   disabledReason?: string | null;
   onClick?: () => void;
 }) {
+  const t = useMailT();
   const label = provider === "outlook" ? "Outlook" : "Gmail";
   return (
     <Button
@@ -372,12 +398,12 @@ function ConnectButton({
       {busy ? (
         <>
           <Loader2 className="h-4 w-4 animate-spin" />
-          Opening {label}…
+          {t("openingProvider", { provider: label })}
         </>
       ) : (
         <>
           <Plus className="h-4 w-4" />
-          Connect {label}
+          {t("connectProvider", { provider: label })}
         </>
       )}
     </Button>
@@ -400,6 +426,7 @@ function OwnIdentityFields({
   domains: string[];
   onSave: (next: { addresses: string[]; domains: string[] }) => void;
 }) {
+  const t = useMailT();
   const [addressText, setAddressText] = React.useState(addresses.join(", "));
   const [domainText, setDomainText] = React.useState(domains.join(", "));
 
@@ -432,11 +459,11 @@ function OwnIdentityFields({
   // pressed against the accounts above it.
   return (
     <>
-      <SettingsHeading>Your other addresses</SettingsHeading>
+      <SettingsHeading>{t("yourOtherAddresses")}</SettingsHeading>
       <SettingsGroup>
         <SettingsStackedRow
-          label="Aliases"
-          hint="Addresses you never connected — mail to these still counts as yours."
+          label={t("aliases")}
+          hint={t("aliasesHint")}
         >
           <input
             type="text"
@@ -445,12 +472,12 @@ function OwnIdentityFields({
             onChange={(e) => setAddressText(e.target.value)}
             onBlur={() => commit(addressText, domainText)}
             className={field}
-            aria-label="Aliases"
+            aria-label={t("aliases")}
           />
         </SettingsStackedRow>
         <SettingsStackedRow
-          label="Colleague domains"
-          hint="Leave empty unless you have an organization."
+          label={t("colleagueDomains")}
+          hint={t("colleagueDomainsHint")}
         >
           <input
             type="text"
@@ -459,7 +486,7 @@ function OwnIdentityFields({
             onChange={(e) => setDomainText(e.target.value)}
             onBlur={() => commit(addressText, domainText)}
             className={field}
-            aria-label="Colleague domains"
+            aria-label={t("colleagueDomains")}
           />
         </SettingsStackedRow>
       </SettingsGroup>
@@ -495,6 +522,7 @@ export function MailAccountsPanel({
     domains: string[];
   }) => void;
 }) {
+  const t = useMailT();
   const router = useMailRouter();
   const { connecting, connect } = useMailConnect();
   const [accounts, setAccounts] = React.useState<MailAccountRow[] | null>(null);
@@ -550,13 +578,13 @@ export function MailAccountsPanel({
           provider: "outlook" as const,
         })
       );
-      setAccounts([...gmailRows, ...outlookRows]);
+      setAccounts(inReaderOrder([...gmailRows, ...outlookRows]));
       setGmailConfigError(gmailJson.configError ?? null);
       setOutlookConfigError(outlookJson.configError ?? null);
     } catch (err) {
       if (!shouldIgnoreFetchError()) {
         toast.error(
-          err instanceof Error ? err.message : "Couldn't load accounts"
+          err instanceof Error ? err.message : t("couldNotLoadAccounts")
         );
       }
       // Never leave the menu stuck on “Loading…” after a failed fetch.
@@ -588,16 +616,17 @@ export function MailAccountsPanel({
     const newIndex = accounts.findIndex((a) => a.email === over.id);
     if (oldIndex < 0 || newIndex < 0) return;
     const moved = accounts[oldIndex];
-    const target = accounts[newIndex];
-    if (moved.provider !== target.provider) {
-      toast.error("Reorder within the same provider only");
-      return;
-    }
 
     const next = arrayMove(accounts, oldIndex, newIndex);
     setAccounts(next);
+    // The reader's own arrangement, whichever provider each mailbox came
+    // from. It is what the rail and the mail list follow — see
+    // `@/lib/mail/account-order`.
+    writeAccountOrder(next.map((a) => a.email));
     void (async () => {
       try {
+        // Each provider is told the order of its own as well, so a host that
+        // reads a provider's list on its own comes back in about this shape.
         const order = next
           .filter((a) => a.provider === moved.provider)
           .map((a) => a.email);
@@ -614,7 +643,7 @@ export function MailAccountsPanel({
         onChanged();
       } catch (err) {
         toast.error(
-          err instanceof Error ? err.message : "Couldn't save the order"
+          err instanceof Error ? err.message : t("couldNotSaveOrder")
         );
         void loadAccounts();
       }
@@ -632,13 +661,28 @@ export function MailAccountsPanel({
       return;
     }
 
-    if (gmailConnected) toast.success(`Gmail connected: ${gmailConnected}`);
-    if (gmailError) toast.error(`Gmail connection failed: ${gmailError}`);
+    if (gmailConnected) {
+      toast.success(
+        t("providerConnected", { provider: "Gmail", email: gmailConnected })
+      );
+    }
+    if (gmailError) {
+      toast.error(
+        t("providerConnectFailed", { provider: "Gmail", error: gmailError })
+      );
+    }
     if (outlookConnected) {
-      toast.success(`Outlook connected: ${outlookConnected}`);
+      toast.success(
+        t("providerConnected", {
+          provider: "Outlook",
+          email: outlookConnected,
+        })
+      );
     }
     if (outlookError) {
-      toast.error(`Outlook connection failed: ${outlookError}`);
+      toast.error(
+        t("providerConnectFailed", { provider: "Outlook", error: outlookError })
+      );
     }
 
     params.delete("gmail_connected");
@@ -665,13 +709,15 @@ export function MailAccountsPanel({
           ? `/api/outlook/accounts?email=${encodeURIComponent(account.email)}`
           : `/api/gmail/accounts?email=${encodeURIComponent(account.email)}`;
       await apiJson(path, { method: "DELETE" });
-      toast.success(`Disconnected ${account.email}`);
+      toast.success(t("accountDisconnected", { email: account.email }));
       onVisibilityChange(account.email, false);
       await loadAccounts();
       router.refresh();
       onChanged();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Couldn't disconnect");
+      toast.error(
+        err instanceof Error ? err.message : t("couldNotDisconnect")
+      );
     }
   };
 
@@ -696,17 +742,17 @@ export function MailAccountsPanel({
       });
       toast.success(
         next
-          ? `${account.email} shown in Mail`
+          ? t("accountShownInMail", { email: account.email })
           : account.provider === "outlook"
-            ? `${account.email} hidden from Mail`
+            ? t("accountHiddenFromMail", { email: account.email })
             : mailUsesCrmPeople()
-              ? `${account.email} hidden from Mail (still synced for CRM)`
-              : `${account.email} hidden from Mail (still connected)`
+              ? t("accountHiddenFromMailCrm", { email: account.email })
+              : t("accountHiddenFromMailConnected", { email: account.email })
       );
       router.refresh();
       onChanged();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Couldn't update");
+      toast.error(err instanceof Error ? err.message : t("couldNotUpdate"));
       onVisibilityChange(account.email, account.inMailTab);
       void loadAccounts();
     }
@@ -717,7 +763,7 @@ export function MailAccountsPanel({
       {/* `first:mt-0` is meant for the heading at the top of a panel. This one
           opens a panel of its own that sits below another section, so it needs
           the same air as any other heading. */}
-      <SettingsHeading className="first:mt-6">Accounts</SettingsHeading>
+      <SettingsHeading className="first:mt-6">{t("accounts")}</SettingsHeading>
 
       {gmailConfigError ? (
         <p className="mt-2 rounded border border-amber-200 bg-amber-50 p-2 text-xs text-amber-800">
@@ -769,7 +815,9 @@ export function MailAccountsPanel({
                     setReconnectingEmail(account.email);
                     const providerLabel =
                       account.provider === "outlook" ? "Microsoft" : "Google";
-                    toast.message(`Opening ${providerLabel} to renew permissions…`);
+                    toast.message(
+                      t("openingToRenew", { provider: providerLabel })
+                    );
                     // Keep spinner visible briefly so the click registers before
                     // the browser navigates away to the OAuth consent screen.
                     window.setTimeout(() => {
@@ -794,7 +842,7 @@ export function MailAccountsPanel({
         </DndContext>
       ) : (
         <p className="px-3 py-3 text-sm text-muted-foreground">
-          No mailboxes connected yet.
+          {t("noMailboxes")}
         </p>
       )}
 

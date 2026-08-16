@@ -21,6 +21,8 @@
  * it sends. The composers listen for that one themselves rather than through
  * the thread handler, which stands down wherever a reply is written.
  */
+import type { MailStringKey } from "@/lib/mail/i18n-strings";
+
 
 export type MailShortcutAction =
   | "reply"
@@ -65,19 +67,20 @@ export const MAIL_SHORTCUT_ACTIONS: MailShortcutAction[] = [
   "togglePin",
 ];
 
-export const MAIL_SHORTCUT_LABELS: Record<MailShortcutAction, string> = {
-  reply: "Reply",
-  replyAll: "Reply all",
-  forward: "Forward",
-  send: "Send",
-  snooze: "Snooze",
-  archive: "Archive",
-  delete: "Delete",
-  toggleUnread: "Mark read or unread",
-  moveToFolder: "Move to folder",
-  print: "Print thread",
-  popOut: "Pop out in a window",
-  togglePin: "Pin or unpin",
+/** What each action is called, as keys into `@/lib/mail/i18n`. */
+export const MAIL_SHORTCUT_LABELS: Record<MailShortcutAction, MailStringKey> = {
+  reply: "actionReply",
+  replyAll: "actionReplyAll",
+  forward: "actionForward",
+  send: "actionSend",
+  snooze: "actionSnooze",
+  archive: "actionArchive",
+  delete: "actionDelete",
+  toggleUnread: "actionToggleUnread",
+  moveToFolder: "actionMoveToFolder",
+  print: "actionPrint",
+  popOut: "actionPopOut",
+  togglePin: "actionTogglePin",
 };
 
 export const DEFAULT_MAIL_SHORTCUTS: Record<MailShortcutAction, MailShortcut> = {
@@ -202,13 +205,14 @@ export function conflictingActions(
  * Nothing can be bound to these, so the dialog says so instead of storing a
  * key that would never fire.
  */
-export function reservedReason(shortcut: MailShortcut): string | null {
+/** Why the operating system answers this one first, as an i18n key. */
+export function reservedReason(shortcut: MailShortcut): MailStringKey | null {
   const key = normalizeKey(shortcut.key);
   if (shortcut.meta && !shortcut.shift && !shortcut.alt && !shortcut.ctrl) {
-    if (key === "m") return "macOS uses this to minimize the window";
-    if (key === "q") return "macOS uses this to quit";
-    if (key === "h") return "macOS uses this to hide the app";
-    if (key === "w") return "macOS uses this to close the window";
+    if (key === "m") return "reservedMinimize";
+    if (key === "q") return "reservedQuit";
+    if (key === "h") return "reservedHide";
+    if (key === "w") return "reservedClose";
   }
   return null;
 }

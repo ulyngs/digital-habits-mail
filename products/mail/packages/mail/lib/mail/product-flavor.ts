@@ -11,6 +11,8 @@
  * planner web app never sets this and stays on CRM.
  */
 
+import type { MailT } from "@/lib/mail/i18n";
+
 export type MailProductFlavor = "internal" | "public";
 
 function rawFlavor(): string {
@@ -42,12 +44,12 @@ export function mailOrgAiAllowed(): boolean {
   return !isPublicMailProduct();
 }
 
-export function mailPeopleTabLabel(): string {
-  return mailUsesCrmPeople() ? "In CRM" : "In Contacts";
+export function mailPeopleTabLabel(t: MailT): string {
+  return t(mailUsesCrmPeople() ? "tabInCrm" : "tabInContacts");
 }
 
-export function mailAddToPeopleActionLabel(): string {
-  return mailUsesCrmPeople() ? "Add to CRM" : "Add to Contacts";
+export function mailAddToPeopleActionLabel(t: MailT): string {
+  return t(mailUsesCrmPeople() ? "addToCrm" : "addToContacts");
 }
 
 /** User-facing reason when a public build hits an org-AI route. */

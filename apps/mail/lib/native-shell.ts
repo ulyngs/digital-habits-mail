@@ -124,11 +124,36 @@ export async function openCalendarInvite(input: {
  * Open the macOS print panel for an HTML document (desktop shell only).
  *
  * `window.print()` does nothing in a WKWebView — see products/mail/crates/mail-native/src/printing.rs.
+ *
+ * Answers false when the shell carries no such command, which is every shell
+ * but the Mac one: WebView2 prints an iframe the way a browser does, so the
+ * Windows app has no native print panel to open and none is built. The caller
+ * prints the same document the browser way instead. A command that is there
+ * and fails still throws, so a real fault is still reported.
  */
-export async function printNativeDocument(html: string): Promise<void> {
+export async function printNativeDocument(html: string): Promise<boolean> {
   const invoke = tauriInvoke();
   if (!invoke) throw new Error("Not running in the desktop app");
-  await invoke("print_document", { html });
+  try {
+    await invoke("print_document", { html });
+    return true;
+  } catch (err) {
+    if (isMissingCommand(err)) return false;
+    throw err;
+  }
+}
+
+/**
+ * Did this rejection mean "this shell has no such command"?
+ *
+ * Tauri answers an unregistered command with "Command <name> not found", and a
+ * command the capabilities do not allow with "... not allowed". Neither is a
+ * typed error, so the text is what there is to read.
+ */
+function isMissingCommand(err: unknown): boolean {
+  const message =
+    err instanceof Error ? err.message : typeof err === "string" ? err : "";
+  return /not found|not allowed/i.test(message);
 }
 
 /**

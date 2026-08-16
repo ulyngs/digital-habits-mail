@@ -27,6 +27,7 @@ import {
   chipSelectionAfterRemoval,
   recipientsToClipboardText,
 } from "@/lib/mail/recipient-chips";
+import { mailSay, useMailT } from "@/lib/mail/i18n";
 import { cn } from "@/lib/utils";
 import { mailApiJson as apiJson } from "@/lib/mail/api";
 import { mailApiFetch } from "@/lib/mail/api";
@@ -382,6 +383,7 @@ function SaveAsListControl({
   onSaved: (list: MailContactList) => void;
   className?: string;
 }) {
+  const t = useMailT();
   const [open, setOpen] = React.useState(false);
   const [name, setName] = React.useState("");
   const [saving, setSaving] = React.useState(false);
@@ -425,7 +427,7 @@ function SaveAsListControl({
             className
           )}
         >
-          Save as list…
+          {t("saveAsList")}
         </button>
       </PopoverTrigger>
       <MailPopoverContent align="end" className="w-72 p-3">
@@ -442,7 +444,7 @@ function SaveAsListControl({
               void save();
             }
           }}
-          placeholder="List name"
+          placeholder={t("listName")}
           className="mt-2 w-full rounded-lg border border-teal-600 px-2.5 py-1.5 text-sm text-stone-800 outline-none focus:ring-2 focus:ring-teal-600/20"
         />
         <div className="mt-3 flex items-center gap-3">
@@ -452,14 +454,14 @@ function SaveAsListControl({
             onClick={() => void save()}
             className="rounded-lg bg-teal-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-teal-700 disabled:opacity-40"
           >
-            {saving ? "Saving…" : "Save"}
+            {saving ? t("saving") : t("save")}
           </button>
           <button
             type="button"
             className="text-sm text-teal-700 hover:underline"
             onClick={() => setOpen(false)}
           >
-            Cancel
+            {t("cancel")}
           </button>
         </div>
         <p className="mt-3 text-[11px] leading-snug text-stone-400">
@@ -493,6 +495,7 @@ function EditListPanel({
   onDone: () => void;
   onDelete: () => void;
 }) {
+  const t = useMailT();
   const [editingInitialsEmail, setEditingInitialsEmail] = React.useState<
     string | null
   >(null);
@@ -573,7 +576,7 @@ function EditListPanel({
                 value={initialsDraft}
                 maxLength={2}
                 aria-label={`Initials for ${m.name || m.email}`}
-                title="Edit initials"
+                title={t("editInitials")}
                 className={cn(
                   "h-7 w-7 shrink-0 rounded-full text-center text-[10px] font-semibold uppercase outline-none ring-2 ring-teal-600",
                   avatarTone(m.email)
@@ -597,7 +600,7 @@ function EditListPanel({
             ) : (
               <button
                 type="button"
-                title="Edit initials"
+                title={t("editInitials")}
                 aria-label={`Edit initials for ${m.name || m.email}`}
                 className={cn(
                   "inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[10px] font-semibold hover:ring-2 hover:ring-teal-500/60",
@@ -650,7 +653,7 @@ function EditListPanel({
                 }
               }
             }}
-            placeholder="Add a person…"
+            placeholder={t("addPerson")}
             className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-stone-400"
           />
         </div>
@@ -695,7 +698,7 @@ function EditListPanel({
           onClick={() => void onDone()}
           className="rounded-lg bg-teal-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-teal-700 disabled:opacity-40"
         >
-          {saving ? "Saving…" : "Done"}
+          {saving ? t("saving") : t("done")}
         </button>
         <button
           type="button"
@@ -703,7 +706,7 @@ function EditListPanel({
           onClick={() => void onDelete()}
           className="text-sm text-red-600 hover:underline"
         >
-          Delete list
+          {t("deleteList")}
         </button>
       </div>
     </div>
@@ -729,6 +732,7 @@ function ListChip({
   onExpand: () => void;
   onRemove: () => void;
 }) {
+  const t = useMailT();
   const [open, setOpen] = React.useState(false);
   const [editing, setEditing] = React.useState(false);
   const [name, setName] = React.useState(recipient.name);
@@ -810,7 +814,7 @@ function ListChip({
                 className="shrink-0 text-xs text-teal-700 hover:underline"
                 onClick={() => setEditing(true)}
               >
-                Edit list
+                {t("editList")}
               </button>
             </div>
             <ul className="mt-2 space-y-1.5">
@@ -848,8 +852,8 @@ function ListChip({
                   }
                   className="rounded border-stone-300 text-teal-600 focus:ring-teal-600"
                 />
-                Send as Bcc
-              </label>
+                  {t("sendAsBcc")}
+                </label>
             </div>
           </div>
         ) : (
@@ -884,7 +888,7 @@ function ListChip({
                   members: json.list.members,
                 });
                 setEditing(false);
-                toast.success("List updated");
+                toast.success(mailSay("listUpdated"));
               } catch (err) {
                 toast.error(
                   err instanceof Error ? err.message : "Couldn't update list"
@@ -904,7 +908,7 @@ function ListChip({
                 await refreshLists();
                 onRemove();
                 setOpen(false);
-                toast.success("List deleted");
+                toast.success(mailSay("listDeleted"));
               } catch (err) {
                 toast.error(
                   err instanceof Error ? err.message : "Couldn't delete list"
@@ -973,6 +977,7 @@ export function RecipientField({
    */
   onTabOut?: () => void;
 }) {
+  const t = useMailT();
   const [draft, setDraft] = React.useState("");
   const [contacts, setContacts] = React.useState<ContactSuggestion[]>([]);
   const [sourceSummaries, setSourceSummaries] = React.useState<
@@ -1055,7 +1060,7 @@ export function RecipientField({
         body: JSON.stringify({ hideEmail: email }),
       });
       await reloadContacts();
-      toast.success("Removed from suggestions");
+      toast.success(mailSay("removedFromSuggestions"));
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Couldn't remove");
     }
@@ -1575,7 +1580,7 @@ export function RecipientField({
               if (!text) return;
               void copyTextToClipboard(text).then((ok) => {
                 if (!ok) {
-                  toast.error("Couldn't copy");
+                  toast.error(mailSay("couldNotCopy"));
                   return;
                 }
                 const n = text.split(", ").length;
@@ -1700,7 +1705,7 @@ export function RecipientField({
             {listItems.length ? (
               <>
                 <li className="px-3 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-stone-400">
-                  Lists
+                  {t("lists")}
                 </li>
                 {listItems.map((item) => {
                   const i = menu.indexOf(item);
@@ -1743,7 +1748,7 @@ export function RecipientField({
               <>
                 {listItems.length ? (
                   <li className="px-3 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-stone-400">
-                    People
+                    {t("people")}
                   </li>
                 ) : null}
                 {contactItems.map((item) => {
@@ -1814,7 +1819,7 @@ export function RecipientField({
                         {isHistory ? (
                           <button
                             type="button"
-                            title="Remove from suggestions"
+                            title={t("removeFromSuggestions")}
                             aria-label={`Remove ${item.contact.email} from suggestions`}
                             className="hidden shrink-0 rounded p-1 text-stone-400 hover:bg-stone-200/60 hover:text-stone-700 group-hover:inline-flex"
                             onMouseDown={(e) => {
@@ -1853,7 +1858,7 @@ export function RecipientField({
                     openContactSourcesDialog();
                   }}
                 >
-                  Manage
+                  {t("manage")}
                 </button>
               </li>
             ) : null}

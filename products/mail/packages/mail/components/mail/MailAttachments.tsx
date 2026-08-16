@@ -30,6 +30,7 @@ import {
 } from "@/lib/mail/clipboard-attachments";
 import { isCalendarAttachment } from "@/lib/mail/ics";
 import { openExternalUrl } from "@/lib/native-shell";
+import { mailSay, useMailT } from "@/lib/mail/i18n";
 import { cn } from "@/lib/utils";
 import type { MailAttachment } from "@/lib/mail/types";
 
@@ -248,14 +249,14 @@ export function useDraftAttachments() {
       const accepted: { draft: DraftAttachment; file: File }[] = [];
       for (const file of list) {
         if (running + file.size > ATTACH_MAX_BYTES) {
-          toast.error("Attachments would exceed Gmail’s 25 MB limit");
+          toast.error(mailSay("attachmentsOverLimit"));
           break;
         }
         if (
           running + file.size > ATTACH_WARN_BYTES &&
           running <= ATTACH_WARN_BYTES
         ) {
-          toast.warning("Getting close to Gmail’s 25 MB attachment limit");
+          toast.warning(mailSay("attachmentsNearLimit"));
         }
         const id = `att-${Date.now().toString(36)}-${Math.random()
           .toString(36)
@@ -496,6 +497,7 @@ export function MessageAttachmentChips({
   attachments: MailAttachment[];
   onPreview: (attachment: MailAttachment) => void;
 }) {
+  const t = useMailT();
   const [saving, setSaving] = React.useState(false);
   if (!attachments.length) return null;
   const savable = attachments.filter(
@@ -539,7 +541,7 @@ export function MessageAttachmentChips({
           ) : (
             <Download className="h-5 w-5" aria-hidden />
           )}
-          {saving ? "Saving…" : "Download all"}
+          {saving ? t("saving") : t("downloadAll")}
         </button>
       ) : null}
     </div>
@@ -556,6 +558,7 @@ export function ThreadAttachmentsRollup({
   items: { messageId: string; attachment: MailAttachment }[];
   onPreview: (messageId: string, attachment: MailAttachment) => void;
 }) {
+  const t = useMailT();
   if (!items.length) return null;
   const calendarOnly = items.every((item) =>
     isCalendarAttachment(item.attachment)
@@ -573,13 +576,17 @@ export function ThreadAttachmentsRollup({
             <Paperclip className="h-3.5 w-3.5" />
           )}
           {calendarOnly
-            ? `${items.length} invite${items.length === 1 ? "" : "s"}`
-            : `${items.length} attachment${items.length === 1 ? "" : "s"}`}
+            ? items.length === 1
+              ? t("inviteCountOne")
+              : t("inviteCountMany", { count: items.length })
+            : items.length === 1
+              ? t("attachmentCountOne")
+              : t("attachmentCountMany", { count: items.length })}
         </button>
       </PopoverTrigger>
       <MailPopoverContent align="end" className="w-80 p-2">
         <p className="px-2 pb-1.5 text-xs font-medium text-stone-500">
-          {calendarOnly ? "Calendar invites in this thread" : "All files in this thread"}
+          {t(calendarOnly ? "calendarInvitesInThread" : "allFilesInThread")}
         </p>
         <ul className="max-h-72 overflow-y-auto">
           {items.map(({ messageId, attachment }) => (
@@ -675,6 +682,7 @@ function AttachmentPreviewBody({
   attachment: MailAttachment;
   onClose: () => void;
 }) {
+  const t = useMailT();
   const { url: src, error } = useAttachmentSourceState(
     attachmentUrl({ account, messageId, attachment })
   );
@@ -845,8 +853,8 @@ function AttachmentPreviewBody({
     <div className="flex shrink-0 items-center gap-0.5 rounded-full border border-stone-200 bg-white px-1.5 py-0.5">
       <button
         type="button"
-        aria-label="Zoom out"
-        title="Zoom out (⌘−)"
+        aria-label={t("zoomOut")}
+        title={`${t("zoomOut")} (⌘−)`}
         className="rounded-full px-1 text-[15px] leading-none text-stone-500 hover:bg-stone-100 hover:text-stone-800 disabled:opacity-40"
         disabled={zoom <= PREVIEW_MIN_ZOOM}
         onClick={() => setZoom((z) => nextPreviewZoom(z, -1))}
@@ -855,7 +863,7 @@ function AttachmentPreviewBody({
       </button>
       <button
         type="button"
-        title="Back to 100% (⌘0)"
+        title={`${t("backTo100")} (⌘0)`}
         className="min-w-[3.25rem] px-1 text-center text-xs tabular-nums text-stone-600 hover:text-stone-900"
         onClick={() => setZoom(1)}
       >
@@ -863,8 +871,8 @@ function AttachmentPreviewBody({
       </button>
       <button
         type="button"
-        aria-label="Zoom in"
-        title="Zoom in (⌘+)"
+        aria-label={t("zoomIn")}
+        title={`${t("zoomIn")} (⌘+)`}
         className="rounded-full px-1 text-[15px] leading-none text-stone-500 hover:bg-stone-100 hover:text-stone-800 disabled:opacity-40"
         disabled={zoom >= PREVIEW_MAX_ZOOM}
         onClick={() => setZoom((z) => nextPreviewZoom(z, 1))}
@@ -914,18 +922,18 @@ function AttachmentPreviewBody({
             }
           >
             <ExternalLink className="h-3.5 w-3.5" />
-            Open
-          </button>
+              {t("open")}
+            </button>
           <a
             {...download}
             className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium text-teal-700 hover:bg-teal-50"
           >
             <Download className="h-3.5 w-3.5" />
-            Download
-          </a>
+              {t("download")}
+            </a>
           <button
             type="button"
-            aria-label="Close"
+            aria-label={t("close")}
             className="rounded-md p-1 text-stone-400 hover:bg-stone-100 hover:text-stone-700"
             onClick={onClose}
           >
@@ -938,7 +946,7 @@ function AttachmentPreviewBody({
         >
           {(image || pdf) && !src && !error ? (
             <div className="flex h-full items-center justify-center text-sm text-stone-400">
-              Loading…
+              {t("loading")}
             </div>
           ) : image && src ? (
             // The picture sits centred while it fits, and scrolls from its
@@ -973,7 +981,7 @@ function AttachmentPreviewBody({
               <div ref={pdfBoxRef} />
               {!pdfReady ? (
                 <div className="pointer-events-none absolute inset-0 flex items-center justify-center text-sm text-stone-400">
-                  Opening…
+                  {t("opening")}
                 </div>
               ) : null}
             </div>
@@ -1003,8 +1011,8 @@ function AttachmentPreviewBody({
                 className="inline-flex items-center gap-2 rounded-lg bg-teal-600 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-700"
               >
                 <Download className="h-4 w-4" />
-                Download
-              </a>
+                  {t("download")}
+                </a>
             </div>
           )}
         </div>
@@ -1061,6 +1069,7 @@ export function DraftAttachmentChips({
   /** For a composer that frames the files itself, rather than ruling them off. */
   className?: string;
 }) {
+  const t = useMailT();
   if (!items.length) return null;
   return (
     <div
@@ -1116,7 +1125,7 @@ export function DraftAttachmentChips({
             <button
               type="button"
               aria-label={`Remove ${att.filename}`}
-              title="Remove"
+              title={t("remove")}
               className="rounded-md p-1 text-stone-400 hover:bg-stone-100 hover:text-stone-700"
               onClick={() => onRemove(att.id)}
             >
@@ -1142,6 +1151,7 @@ export function AttachToolbarButton({
   /** For a composer that wants it the size of the buttons beside it. */
   iconClassName?: string;
 }) {
+  const t = useMailT();
   const inputRef = React.useRef<HTMLInputElement>(null);
   return (
     <>
@@ -1157,8 +1167,8 @@ export function AttachToolbarButton({
       />
       <button
         type="button"
-        title="Attach files"
-        aria-label="Attach files"
+        title={t("attachFiles")}
+        aria-label={t("attachFiles")}
         disabled={disabled}
         className={cn(
           "inline-flex h-7 w-7 items-center justify-center rounded text-stone-500 hover:bg-stone-100 hover:text-stone-800 disabled:opacity-40",
@@ -1189,6 +1199,7 @@ export function DraftAttachmentThumbs({
   items: DraftAttachment[];
   onRemove: (id: string) => void;
 }) {
+  const t = useMailT();
   if (!items.length) return null;
   return (
     <div className="flex gap-2 overflow-x-auto pb-1 [scrollbar-width:thin]">
@@ -1226,7 +1237,7 @@ export function DraftAttachmentThumbs({
             ) : null}
             <button
               type="button"
-              title="Remove"
+              title={t("remove")}
               aria-label={`Remove ${att.filename}`}
               onClick={() => onRemove(att.id)}
               className="absolute right-1 top-1 inline-flex h-5 w-5 items-center justify-center rounded-full bg-stone-900/60 text-white backdrop-blur transition-colors hover:bg-stone-900/80"
@@ -1264,13 +1275,14 @@ export function AttachmentSizeSummary({
 
 /** Full-card drop overlay while dragging files over the composer. */
 export function ComposerDropOverlay({ visible }: { visible: boolean }) {
+  const t = useMailT();
   if (!visible) return null;
   return (
     <div className="pointer-events-none absolute inset-0 z-40 flex items-center justify-center rounded-xl bg-teal-50/90 p-6">
       <div className="flex w-full max-w-md flex-col items-center gap-3 rounded-xl border-2 border-dashed border-teal-500 bg-white px-8 py-10 text-center shadow-sm">
         <FileUp className="h-8 w-8 text-teal-600" />
         <p className="text-sm font-medium text-stone-800">
-          Drop to attach to this message
+          {t("dropToAttach")}
         </p>
       </div>
     </div>

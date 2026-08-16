@@ -12,6 +12,7 @@
  */
 
 import * as React from "react";
+import { mailSay, useMailT } from "@/lib/mail/i18n";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -34,6 +35,7 @@ export function MacContactsAskCard({
   trigger: number;
   onGranted: () => void;
 }) {
+  const t = useMailT();
   const [open, setOpen] = React.useState(false);
   const [asking, setAsking] = React.useState(false);
 
@@ -76,7 +78,7 @@ export function MacContactsAskCard({
       }
       stopAskingForMacContacts();
       setOpen(false);
-      toast.error("Allow Contacts in System Settings to turn this on later");
+      toast.error(mailSay("allowContactsLater"));
     } finally {
       setAsking(false);
     }
@@ -86,7 +88,7 @@ export function MacContactsAskCard({
     <div className="fixed inset-0 z-[60] grid place-items-center bg-stone-900/30 p-6">
       <div className="w-full max-w-sm rounded-2xl border border-stone-200 bg-white p-5 shadow-xl">
         <h2 className="text-base font-semibold text-stone-900">
-          Complete addresses from Mac Contacts?
+          {t("macContactsAsk2")}
         </h2>
         <p className="mt-2 text-sm leading-relaxed text-stone-600">
           Mail can suggest names and addresses from the Contacts app while you
@@ -102,10 +104,10 @@ export function MacContactsAskCard({
               setOpen(false);
             }}
           >
-            Not now
+            {t("notNow")}
           </Button>
           <Button type="button" disabled={asking} onClick={() => void allow()}>
-            {asking ? "Waiting for macOS…" : "Allow"}
+            {asking ? t("waitingForMacOs") : t("allow")}
           </Button>
         </div>
       </div>

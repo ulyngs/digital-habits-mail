@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { useMailT } from "@/lib/mail/i18n";
 
 import {
   MAX_ZOOM,
@@ -20,6 +21,7 @@ export function ZoomControls({
    */
   onAdjust: (delta: number) => void;
 }) {
+  const t = useMailT();
   const percent = Math.round(zoom * 100);
   /** Typing a size in. Null when the label is just a label. */
   const [typed, setTyped] = React.useState<string | null>(null);
@@ -39,8 +41,8 @@ export function ZoomControls({
     <div className="flex shrink-0 items-center gap-0.5 rounded-full border border-stone-200 bg-white px-1.5 py-1">
       <button
         type="button"
-        aria-label="Smaller text"
-        title="Smaller text"
+        aria-label={t("smallerText")}
+        title={t("smallerText")}
         className="rounded-full px-1 text-[15px] leading-none text-stone-500 hover:bg-stone-100 hover:text-stone-800 disabled:opacity-40"
         disabled={zoom <= MIN_ZOOM}
         onClick={() => onAdjust(nextZoomStop(zoom, -1) - zoom)}
@@ -66,7 +68,7 @@ export function ZoomControls({
           <button
             type="button"
             aria-label={`Text size ${percent}%. Click to type a size.`}
-            title="Type a size"
+            title={t("typeASize")}
             className="col-start-1 row-start-1 text-center hover:text-stone-700"
             onClick={() => setTyped(String(percent))}
           >
@@ -79,7 +81,7 @@ export function ZoomControls({
             // characters wide.
             type="text"
             inputMode="numeric"
-            aria-label="Text size, per cent"
+            aria-label={t("textSizePercent")}
             autoFocus
             /*
               A box asks for room for twenty characters unless it is told
@@ -112,8 +114,8 @@ export function ZoomControls({
       </span>
       <button
         type="button"
-        aria-label="Bigger text"
-        title="Bigger text"
+        aria-label={t("biggerText")}
+        title={t("biggerText")}
         className="rounded-full px-1 text-[15px] leading-none text-stone-500 hover:bg-stone-100 hover:text-stone-800 disabled:opacity-40"
         disabled={zoom >= MAX_ZOOM}
         onClick={() => onAdjust(nextZoomStop(zoom, 1) - zoom)}

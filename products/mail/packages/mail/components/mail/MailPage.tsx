@@ -194,10 +194,18 @@ import { MailShortcutsDialog } from "@/components/mail/MailShortcutsDialog";
 import {
   SettingsGroup,
   SettingsHeading,
+  SettingsLanguageRow,
   SettingsRow,
   SettingsToggle,
   settingsSecondaryButton,
 } from "@/components/mail/settings-ui";
+import {
+  currentMailLocale,
+  mailSay,
+  useMailT,
+  type MailStringKey,
+  type MailT,
+} from "@/lib/mail/i18n";
 import { MAIL_APP_VERSION } from "@/lib/mail/app-version";
 import { MailRestPanel } from "@/components/mail/MailRestPanel";
 import { MailDraftsList } from "@/components/mail/MailDraftsList";
@@ -222,6 +230,13 @@ import {
 } from "@/lib/mail/popout";
 import { setMailAvatars, teamAvatarSrc } from "@/lib/mail/team-avatars";
 import { cn } from "@/lib/utils";
+import {
+  MAIL_ACCOUNT_ORDER_EVENT,
+  moveAccountBefore,
+  readAccountOrder,
+  sortAccountsByOrder,
+  writeAccountOrder,
+} from "@/lib/mail/account-order";
 import { mailApiJson as apiJson } from "@/lib/mail/api";
 import { mailApiFetch } from "@/lib/mail/api";
 import {
@@ -376,13 +391,13 @@ function SyncIcon({
 
 const MAIL_LIST_LAYOUTS: {
   id: MailListPlacement;
-  label: string;
+  label: MailStringKey;
   diagram: MailListPlacement;
 }[] = [
-  { id: "left", label: "List on the left", diagram: "left" },
-  { id: "right", label: "List on the right", diagram: "right" },
-  { id: "top", label: "List on top", diagram: "top" },
-  { id: "bottom", label: "List on the bottom", diagram: "bottom" },
+  { id: "left", label: "layoutLeft", diagram: "left" },
+  { id: "right", label: "layoutRight", diagram: "right" },
+  { id: "top", label: "layoutTop", diagram: "top" },
+  { id: "bottom", label: "layoutBottom", diagram: "bottom" },
 ];
 
 function MailListLayoutDiagram({
@@ -426,12 +441,13 @@ function ListDensityToggle({
   onChange: (density: MailListDensity) => void;
   onNavy?: boolean;
 }) {
+  const t = useMailT();
   const compact = density === "compact";
   return (
     <button
       type="button"
-      title={compact ? "Relaxed list" : "Compact list"}
-      aria-label={compact ? "Use relaxed list density" : "Use compact list density"}
+      title={compact ? t("relaxedList") : t("compactList")}
+      aria-label={compact ? t("relaxedDensity") : t("compactDensity")}
       aria-pressed={compact}
       className={cn(
         "rounded-md p-1.5",
@@ -464,14 +480,15 @@ function MailViewModeTabs({
   /** Stack icons in the narrow avatar rail. */
   vertical?: boolean;
 }) {
+  const t = useMailT();
   const options = [
-    { id: "threads" as const, label: "By thread", Icon: Mails },
-    { id: "people" as const, label: "By person", Icon: User },
+    { id: "threads" as const, label: t("byThread"), Icon: Mails },
+    { id: "people" as const, label: t("byPerson"), Icon: User },
   ];
   return (
     <div
       role="tablist"
-      aria-label="List grouping"
+      aria-label={t("listGrouping")}
       className={cn(
         "flex shrink-0 rounded-md p-0.5",
         vertical ? "flex-col gap-0.5" : "items-center gap-0.5",
@@ -559,6 +576,7 @@ function MailLayoutMenu({
     useLoadImagesByDefault();
   const [theme, setTheme] = useMailTheme();
   const [shortcutsOpen, setShortcutsOpen] = React.useState(false);
+  const t = useMailT();
 
   // Opened from the mailbox filter next to search. One menu is mounted, so
   // this cannot open two at once.
@@ -573,8 +591,8 @@ function MailLayoutMenu({
       <PopoverTrigger asChild>
         <button
           type="button"
-          title="Display & accounts"
-          aria-label="Display and accounts"
+          title={t("displayAndAccounts")}
+          aria-label={t("displayAndAccountsAria")}
           aria-expanded={open}
           aria-haspopup="dialog"
           className={cn(
@@ -630,52 +648,54 @@ function MailLayoutMenu({
       >
         <div className="flex items-baseline justify-between gap-3 px-3 pb-2 pt-3">
           <h2 className="font-serif text-xl font-bold text-stone-900">
-            Settings
+            {t("settings")}
           </h2>
           {MAIL_APP_VERSION ? (
             <span className="text-xs text-stone-400">
-              Version {MAIL_APP_VERSION}
+              {t("version")} {MAIL_APP_VERSION}
             </span>
           ) : null}
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-3">
-        <SettingsHeading>General</SettingsHeading>
+        <SettingsHeading>{t("general")}</SettingsHeading>
         <SettingsGroup>
+          {/* The language first: it decides what every row under it says. */}
+          <SettingsLanguageRow />
           <SettingsRow
-            label="Theme"
+            label={t("theme")}
             control={
               // A menu, not three buttons. The operating system draws it, so
               // it is the list a Mac reader already knows, with the current
               // choice ticked — and it stays one line however many there are.
               <span className="relative inline-flex items-center">
                 <select
-                  aria-label="Theme"
+                  aria-label={t("theme")}
                   value={theme}
                   onChange={(e) => setTheme(e.target.value as MailTheme)}
                   className="cursor-pointer appearance-none rounded-md border border-stone-200 bg-white py-1 pl-2.5 pr-7 text-xs text-stone-700 outline-none hover:bg-stone-50"
                 >
-                  <option value="system">System</option>
-                  <option value="light">Light</option>
-                  <option value="dark">Dark</option>
+                  <option value="system">{t("themeSystem")}</option>
+                  <option value="light">{t("themeLight")}</option>
+                  <option value="dark">{t("themeDark")}</option>
                 </select>
                 <ChevronDown className="pointer-events-none absolute right-2 h-3.5 w-3.5 text-stone-400" />
               </span>
             }
           />
           <SettingsRow
-            label="Load images by default"
-            hint="Some senders use image loading to know that you opened their mail."
+            label={t("loadImages")}
+            hint={t("loadImagesHint")}
             control={
               <SettingsToggle
                 checked={loadImagesByDefault}
                 onChange={setLoadImagesByDefault}
-                label="Load images by default"
+                label={t("loadImages")}
               />
             }
           />
           <SettingsRow
-            label="Keyboard shortcuts"
+            label={t("keyboardShortcuts")}
             onClick={() => {
               setOpen(false);
               setShortcutsOpen(true);
@@ -691,18 +711,19 @@ function MailLayoutMenu({
               Composing one: it is read every time a name is typed anywhere. */}
           <ContactSourcesSettingsRow onOpen={() => setOpen(false)} />
           <SettingsRow
-            label="Reading pane"
-            hint="Where the open thread sits."
+            label={t("readingPane")}
+            hint={t("readingPaneHint")}
             control={
               <span className="flex gap-1">
                 {MAIL_LIST_LAYOUTS.map((option) => {
                   const selected = placement === option.id;
+                  const label = t(option.label);
                   return (
                     <button
                       key={option.id}
                       type="button"
-                      title={option.label}
-                      aria-label={option.label}
+                      title={label}
+                      aria-label={label}
                       aria-pressed={selected}
                       onClick={() => setMailListPlacement(option.id)}
                       className={cn(
@@ -744,7 +765,7 @@ function MailLayoutMenu({
             className={cn(settingsSecondaryButton, "w-full")}
             onClick={() => setOpen(false)}
           >
-            Done
+            {t("done")}
           </button>
         </div>
       </MailPopoverContent>
@@ -757,6 +778,7 @@ function MailLayoutMenu({
 
 /** Outlook-style cue that this thread has a local unsent reply/forward. */
 function DraftBadge({ className }: { className?: string }) {
+  const t = useMailT();
   return (
     <span
       className={cn(
@@ -765,7 +787,7 @@ function DraftBadge({ className }: { className?: string }) {
         className
       )}
     >
-      Draft
+      {t("draft")}
     </span>
   );
 }
@@ -816,6 +838,7 @@ function ThreadRowMenu({
   onTrash?: () => void;
   onDismiss: () => void;
 }) {
+  const t = useMailT();
   const ref = React.useRef<HTMLDivElement>(null);
   const [placed, setPlaced] = React.useState({ left: x, top: y });
 
@@ -863,7 +886,7 @@ function ThreadRowMenu({
     <div
       ref={ref}
       role="menu"
-      aria-label="Conversation"
+      aria-label={t("conversation")}
       style={{ left: placed.left, top: placed.top }}
       /* A portal's events travel up the React tree, not the DOM one, so a
          click in here reached the row this menu belongs to and opened the
@@ -879,27 +902,27 @@ function ThreadRowMenu({
       {onSnooze ? (
         <button type="button" role="menuitem" autoFocus className={item} onClick={run(onSnooze)}>
           <RotateCwFadingClock className={icon} aria-hidden />
-          {snoozed ? "Change snooze…" : "Snooze…"}
+          {snoozed ? t("changeSnoozeEllipsis") : t("snoozeEllipsis")}
         </button>
       ) : null}
       {snoozed && onCancelSnooze ? (
         <button type="button" role="menuitem" className={item} onClick={run(onCancelSnooze)}>
           <RotateCwFadingClock className={icon} aria-hidden />
-          Cancel snooze
+          {t("cancelSnooze")}
         </button>
       ) : null}
       <button type="button" role="menuitem" className={item} onClick={run(onToggleRead)}>
         <MailDotIcon className={icon} aria-hidden />
-        {unread ? "Mark as read" : "Mark as unread"}
+        {unread ? t("markAsRead") : t("markAsUnread")}
       </button>
       <button type="button" role="menuitem" className={item} onClick={run(onTogglePin)}>
         <Pin className={icon} aria-hidden />
-        {pinned ? "Unpin" : "Pin to the top"}
+        {pinned ? t("unpin") : t("pinToTop")}
       </button>
       {onArchive ? (
         <button type="button" role="menuitem" className={item} onClick={run(onArchive)}>
           <Archive className={icon} aria-hidden />
-          Archive
+          {t("actionArchive")}
         </button>
       ) : null}
       {onTrash ? (
@@ -910,7 +933,7 @@ function ThreadRowMenu({
           onClick={run(onTrash)}
         >
           <Trash2 className="h-3.5 w-3.5 shrink-0 text-red-500" aria-hidden />
-          Delete
+          {t("actionDelete")}
         </button>
       ) : null}
     </div>,
@@ -958,6 +981,7 @@ function ThreadListRow({
   onTrash?: () => void;
   dragKind: "pin" | "folder";
 }) {
+  const say = useMailT();
   const rowRef = React.useRef<HTMLDivElement | null>(null);
   const compact = density === "compact";
   // The quick actions live on hover. While the snooze menu is open the pointer
@@ -990,8 +1014,8 @@ function ThreadListRow({
   const narrowTitle = [
     t.fromName,
     t.subject,
-    hasDraft ? "Draft" : null,
-    t.unread ? "Unread" : null,
+    hasDraft ? say("draft") : null,
+    t.unread ? say("unread") : null,
   ]
     .filter(Boolean)
     .join(" — ");
@@ -1028,8 +1052,8 @@ function ThreadListRow({
           trigger={
             <button
               type="button"
-              title={t.snoozedUntil ? "Change snooze" : "Snooze"}
-              aria-label={t.snoozedUntil ? "Change snooze" : "Snooze"}
+              title={t.snoozedUntil ? say("changeSnooze") : say("snooze")}
+              aria-label={t.snoozedUntil ? say("changeSnooze") : say("snooze")}
               className={actionBtn}
             >
               <RotateCwFadingClock className={actionIcon} />
@@ -1182,7 +1206,7 @@ function ThreadListRow({
                   // the two are one aside about the same thread.
                   t.hasCalendarInvite ? "-ml-[5px]" : "-ml-0.5"
                 )}
-                title="Has attachments"
+                title={say("hasAttachments")}
               >
                 <Paperclip
                   className={cn(
@@ -1221,7 +1245,7 @@ function ThreadListRow({
                   <button
                     type="button"
                     className={snoozeBtn}
-                    title="Change snooze"
+                    title={say("changeSnooze")}
                   >
                     <Clock className="h-3 w-3" aria-hidden />
                     {formatSnoozeWakeLabel(t.snoozedUntil)}
@@ -1271,7 +1295,7 @@ function ThreadListRow({
                     <button
                       type="button"
                       className={snoozeBtn}
-                      title="Change snooze"
+                      title={say("changeSnooze")}
                     >
                       <Clock className="h-3 w-3" aria-hidden />
                       {formatSnoozeWakeLabel(t.snoozedUntil)}
@@ -1338,7 +1362,7 @@ function ThreadListRow({
                   // the two are one aside about the same thread.
                   t.hasCalendarInvite ? "-ml-[5px]" : "-ml-0.5"
                 )}
-                title="Has attachments"
+                title={say("hasAttachments")}
               >
                 <Paperclip
                   className={cn(
@@ -1559,16 +1583,16 @@ const MAIL_OFF_TAB_VIEWS = ["sent", "drafts", "trash", "junk", "snoozed"];
  */
 const SERVER_FOLDER_VIEWS = ["sent", "trash", "junk"];
 
-function mailBuiltinTabLabels(): Record<string, string> {
+function mailBuiltinTabLabels(t: MailT): Record<string, string> {
   return {
-    all: "All",
-    people: mailPeopleTabLabel(),
-    other: "Other",
-    sent: "Sent",
-    drafts: "Drafts",
-    trash: "Trash",
-    junk: "Junk",
-    snoozed: "Snoozed",
+    all: t("tabAll"),
+    people: mailPeopleTabLabel(t),
+    other: t("tabOther"),
+    sent: t("viewSent"),
+    drafts: t("viewDrafts"),
+    trash: t("viewTrash"),
+    junk: t("viewJunk"),
+    snoozed: t("viewSnoozed"),
   };
 }
 
@@ -1584,30 +1608,32 @@ function mailSearchPlaceholder(input: {
   folderName: string | null;
   customListName: string | null;
   tab: string;
+  t: MailT;
 }): string {
-  if (input.folderName) return `Search ${input.folderName}`;
-  if (input.customListName) return `Search ${input.customListName}`;
+  const { t } = input;
+  if (input.folderName) return t("searchIn", { name: input.folderName });
+  if (input.customListName) {
+    return t("searchIn", { name: input.customListName });
+  }
   switch (input.tab) {
     case "people":
       // The word the tab uses, in a sentence: "In Contacts" and "In CRM"
       // name a pile, and this has to name where the mail came from.
-      return mailUsesCrmPeople()
-        ? "Search mail from the CRM"
-        : "Search mail from contacts";
+      return t(mailUsesCrmPeople() ? "searchFromCrm" : "searchFromContacts");
     case "other":
-      return "Search mail from everyone else";
+      return t("searchFromOthers");
     case "sent":
-      return "Search sent mail";
+      return t("searchSent");
     case "drafts":
-      return "Search drafts";
+      return t("searchDrafts");
     case "trash":
-      return "Search Trash";
+      return t("searchTrash");
     case "junk":
-      return "Search Junk";
+      return t("searchJunk");
     case "snoozed":
-      return "Search snoozed mail";
+      return t("searchSnoozed");
     default:
-      return "Search all mail";
+      return t("searchAll");
   }
 }
 
@@ -1631,6 +1657,7 @@ function MailListLoading({
   onNavy: boolean;
   narrow: boolean;
 }) {
+  const t = useMailT();
   return (
     <div
       role="status"
@@ -1655,7 +1682,7 @@ function MailListLoading({
               onNavy ? "text-white/80" : "text-stone-600"
             )}
           >
-            Loading from {provider}…
+            {t("loadingFromProvider", { provider })}
           </p>
           <p
             className={cn(
@@ -1663,7 +1690,7 @@ function MailListLoading({
               onNavy ? "text-white/50" : "text-stone-400"
             )}
           >
-            A big folder can take a few seconds to come back.
+            {t("loadingFolderHint")}
           </p>
         </>
       )}
@@ -2234,16 +2261,17 @@ function mailboxScopeKey(selected: string[], accounts: string[]): string {
 function mailboxScopeLabel(
   selected: string[],
   accounts: string[],
-  accountLabels: Map<string, AccountChipLabel>
+  accountLabels: Map<string, AccountChipLabel>,
+  t: MailT
 ): string {
   // "All mailboxes" over one mailbox names a choice nobody has. What the
   // menu is about there is the mail, and the setting underneath it.
-  if (accounts.length <= 1) return "All mail";
-  if (isMailboxScopeAll(selected, accounts)) return "All mailboxes";
+  if (accounts.length <= 1) return t("allMail");
+  if (isMailboxScopeAll(selected, accounts)) return t("allMailboxes");
   if (selected.length === 1) {
     return formatAccountChipLabel(selected[0], accountLabels);
   }
-  return `${selected.length} mailboxes`;
+  return t("mailboxCount", { count: selected.length });
 }
 
 /**
@@ -2258,10 +2286,11 @@ function mailboxScopeSummary(
   selected: string[],
   accounts: string[],
   accountLabels: Map<string, AccountChipLabel>,
-  includeDeleted: boolean
+  includeDeleted: boolean,
+  t: MailT
 ): string {
-  const base = mailboxScopeLabel(selected, accounts, accountLabels);
-  return includeDeleted ? `${base} +Deleted` : base;
+  const base = mailboxScopeLabel(selected, accounts, accountLabels, t);
+  return includeDeleted ? `${base} ${t("plusDeleted")}` : base;
 }
 
 /** Single-account API ops only when exactly one mailbox is selected. */
@@ -2313,6 +2342,7 @@ function MailboxScopeMenu({
   includeDeleted: boolean;
   onIncludeDeletedChange: (next: boolean) => void;
 }) {
+  const t = useMailT();
   const [open, setOpen] = React.useState(false);
   const allVisible = isMailboxScopeAll(selected, accounts);
   /** One mailbox is not a choice, so it is not offered as one. */
@@ -2322,7 +2352,7 @@ function MailboxScopeMenu({
       <PopoverTrigger asChild>
         <button
           type="button"
-          title="Mailboxes to show and search"
+          title={t("mailboxesToShow")}
           onPointerDown={beginNativeWindowDragOnMove}
           className="flex h-full shrink-0 items-center gap-0.5 rounded-l-[0.65rem] pl-2 pr-1.5 text-sm font-medium text-stone-600 hover:bg-stone-100 hover:text-stone-900"
         >
@@ -2331,7 +2361,8 @@ function MailboxScopeMenu({
               selected,
               accounts,
               accountLabels,
-              searching && includeDeleted
+              searching && includeDeleted,
+              t
             )}
           </span>
           <ChevronDown className="h-3.5 w-3.5 shrink-0 opacity-70" />
@@ -2404,7 +2435,7 @@ function MailboxScopeMenu({
               className="flex w-full items-center gap-2.5 rounded px-2.5 py-1.5 text-left text-sm text-stone-800 hover:bg-stone-100"
             >
               <span className="min-w-0 flex-1 truncate">
-                Include deleted mail in search
+                {t("includeDeleted")}
               </span>
               <span
                 aria-hidden
@@ -2431,7 +2462,9 @@ function MailboxScopeMenu({
             }}
             className="flex w-full items-center gap-2.5 rounded px-2.5 py-1.5 text-left text-sm text-stone-500 hover:bg-stone-100 hover:text-stone-900"
           >
-            <span className="min-w-0 flex-1 truncate">Manage mailboxes…</span>
+            <span className="min-w-0 flex-1 truncate">
+              {t("manageMailboxes")}
+            </span>
             <ChevronRight className="h-3.5 w-3.5 shrink-0" aria-hidden />
           </button>
         </div>
@@ -2463,6 +2496,7 @@ function PersonRowActions({
   /** Read when anything is unread; otherwise the newest back to unread. */
   onToggleRead: () => void;
 }) {
+  const say = useMailT();
   const plain = onNavy
     ? "rounded p-1 text-white/55 hover:bg-white/10 hover:text-white"
     : "rounded p-1 text-stone-500 hover:bg-stone-100 hover:text-stone-800";
@@ -2475,14 +2509,14 @@ function PersonRowActions({
         title={
           unreadCount
             ? unreadCount === 1
-              ? "Mark as read"
-              : `Mark all ${unreadCount} as read`
-            : "Mark the newest as unread"
+              ? say("markAsRead")
+              : say("markAllAsRead", { count: unreadCount })
+            : say("markNewestUnread")
         }
         aria-label={
           unreadCount
-            ? `Mark ${row.name}'s mail as read`
-            : `Mark the newest message from ${row.name} as unread`
+            ? say("markPersonRead", { name: row.name })
+            : say("markPersonNewestUnread", { name: row.name })
         }
         className={plain}
         onClick={onToggleRead}
@@ -2491,8 +2525,12 @@ function PersonRowActions({
       </button>
       <button
         type="button"
-        title={pinned ? "Unpin" : "Pin to the top"}
-        aria-label={pinned ? `Unpin ${row.name}` : `Pin ${row.name}`}
+        title={pinned ? say("unpin") : say("pinToTop")}
+        aria-label={
+          pinned
+            ? say("unpinPerson", { name: row.name })
+            : say("pinPerson", { name: row.name })
+        }
         className={cn(
           "rounded p-1",
           pinned
@@ -2517,12 +2555,14 @@ function PersonRowActions({
         // Archiving one thread and archiving eleven are different acts, and the
         // label is the only warning there is.
         title={
-          count === 1 ? "Archive the conversation" : `Archive all ${count}`
+          count === 1
+            ? say("archiveConversation")
+            : say("archiveAllCount", { count })
         }
         aria-label={
           count === 1
-            ? `Archive the conversation with ${row.name}`
-            : `Archive all ${count} conversations with ${row.name}`
+            ? say("archiveConversationWith", { name: row.name })
+            : say("archiveAllWith", { count, name: row.name })
         }
         className={plain}
         onClick={onArchive}
@@ -2744,6 +2784,7 @@ export function MailPage({
     domains: string[];
   }) => void;
 }) {
+  const t = useMailT();
   // Before anything renders: reply-stripping, the "You" label, and the
   // in-contacts split all ask whether an address is the reader's, and the
   // answer is nothing until it is set. useMemo, not useEffect — the first
@@ -2800,9 +2841,16 @@ export function MailPage({
   }, []);
   // Local copy so hide/show in the accounts menu updates chips + list immediately
   // (InstantTabPaint snapshots / router.refresh otherwise lag a full remount).
-  const [accountEmails, setAccountEmails] = React.useState(accounts);
+  const [accountEmails, setAccountEmails] = React.useState(() =>
+    sortAccountsByOrder(accounts, readAccountOrder())
+  );
   React.useEffect(() => {
-    setAccountEmails(accounts);
+    const follow = () =>
+      setAccountEmails(sortAccountsByOrder(accounts, readAccountOrder()));
+    follow();
+    // The settings panel arranges them too, and it is a different tree.
+    window.addEventListener(MAIL_ACCOUNT_ORDER_EVENT, follow);
+    return () => window.removeEventListener(MAIL_ACCOUNT_ORDER_EVENT, follow);
   }, [accounts]);
   const [viewMode, setViewMode] = useMailViewMode();
   const [listDensity, setListDensity] = useMailListDensity();
@@ -3541,7 +3589,7 @@ export function MailPage({
             return current.inCrm === inCrm ? current : { ...current, inCrm };
           });
           if (successes < accountEmails.length && !quiet) {
-            toast.error("Couldn't refresh some mailboxes");
+            toast.error(mailSay("couldNotRefreshSome"));
           }
           return successes === accountEmails.length;
         }
@@ -3582,7 +3630,7 @@ export function MailPage({
           !rawThreads.length &&
           (cached?.threads.length || warmRows.length) > 0;
         if (keepWarm) {
-          if (!quiet) toast.error("Couldn't refresh inbox");
+          if (!quiet) toast.error(mailSay("couldNotRefreshInbox"));
           return false;
         }
         const now = Date.now();
@@ -3805,6 +3853,22 @@ export function MailPage({
     // Quiet: automatic open must not toast when one slow mailbox fails.
     // Manual refresh / pull still surfaces partial failures.
     void loadThreads({ incremental: true, quiet: true });
+  }, [loadThreads]);
+
+  /*
+   * The address book changed, so the split between In Contacts and Other
+   * may be wrong for rows already on screen. On a first run the inbox loads
+   * before the first contact sync ends, and every row lands in Other until
+   * the next poll. Load again now, past the caches, so the tabs are right
+   * as soon as the contacts are.
+   */
+  React.useEffect(() => {
+    const onContactsChanged = () => {
+      void loadThreads({ fresh: true, quiet: true });
+    };
+    window.addEventListener(CONTACTS_CHANGED_EVENT, onContactsChanged);
+    return () =>
+      window.removeEventListener(CONTACTS_CHANGED_EVENT, onContactsChanged);
   }, [loadThreads]);
 
   // Focus-aware inbox poll: while the window is visible, quietly refresh so
@@ -4134,7 +4198,7 @@ export function MailPage({
           });
           if (undo.folderName)
             bumpMailFolderCount(undo.summary.account, undo.folderName, -1);
-          toast.success("Moved back to inbox");
+          toast.success(mailSay("movedBackToInbox"));
         } else if (undo.kind === "snooze") {
           await apiJson("/api/mail/unsnooze", {
             method: "POST",
@@ -4148,7 +4212,7 @@ export function MailPage({
             const current = n == null ? 1 : n;
             return Math.max(0, current - 1);
           });
-          toast.success("Snooze cancelled");
+          toast.success(mailSay("snoozeCancelled"));
         } else {
           await apiJson(
             undo.kind === "trash" ? "/api/mail/untrash" : "/api/mail/unarchive",
@@ -4162,11 +4226,15 @@ export function MailPage({
             }
           );
           toast.success(
-            undo.kind === "trash" ? "Restored to inbox" : "Moved back to inbox"
+            mailSay(
+              undo.kind === "trash" ? "restoredToInbox" : "movedBackToInbox"
+            )
           );
         }
       } catch (err) {
-        toast.error(err instanceof Error ? err.message : "Couldn't restore");
+        toast.error(
+          err instanceof Error ? err.message : mailSay("couldNotRestore")
+        );
       }
     },
     [listCacheKey]
@@ -4539,7 +4607,7 @@ export function MailPage({
     (summary: MailThreadSummary) => {
       capturePinFlip(threadKey(summary));
       const nowPinned = toggleMailPin(summary);
-      toast(nowPinned ? "Pinned" : "Unpinned");
+      toast(nowPinned ? t("pinned") : t("unpinned"));
     },
     [capturePinFlip]
   );
@@ -4622,10 +4690,12 @@ export function MailPage({
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(t),
         });
-        toast.success("Moved back out of Trash");
+        toast.success(mailSay("movedOutOfTrash"));
       } catch (err) {
         setThreads(before);
-        toast.error(err instanceof Error ? err.message : "Couldn't restore");
+        toast.error(
+          err instanceof Error ? err.message : mailSay("couldNotRestore")
+        );
       }
     },
     [threads, removeThread]
@@ -4655,16 +4725,16 @@ export function MailPage({
         // Junk is out of every folder search, the same as Trash. Taking one
         // back out of Junk happens in the Junk view, where no folder is open.
         if (junk) noteLeftOpenFolder(t.account);
-        toast.success(junk ? "Moved to Junk" : "Moved back to the inbox");
+        toast.success(
+          mailSay(junk ? "movedToJunk" : "movedBackToTheInbox")
+        );
       } catch (err) {
         unhideRows([key]);
         setThreads(before);
         toast.error(
           err instanceof Error
             ? err.message
-            : junk
-              ? "Couldn't move to Junk"
-              : "Couldn't move it back"
+            : mailSay(junk ? "couldNotMoveToJunk" : "couldNotMoveBack")
         );
       }
     },
@@ -4957,7 +5027,7 @@ export function MailPage({
           const current = n == null ? 1 : n;
           return Math.max(0, current - 1);
         });
-        toast.success("Snooze cancelled");
+        toast.success(mailSay("snoozeCancelled"));
       } catch (err) {
         setThreads(before);
         toast.error(
@@ -4977,11 +5047,58 @@ export function MailPage({
    * nothing here had any reason to look again. The draft stayed invisible
    * however many times Sync was pressed.
    */
+  /**
+   * The button spins for at least one turn.
+   *
+   * A poll that finds nothing new answers in a moment, and the icon started
+   * and stopped inside a fifth of a second — a twitch, in the middle of a
+   * rotation, which reads as a sync that failed rather than one that found
+   * nothing. A whole turn is a movement, and it ends where it began.
+   *
+   * `animate-spin` is a one second rotation, so the floor is one second: any
+   * other number stops the icon mid-way round.
+   */
+  const [syncTurn, setSyncTurn] = React.useState(false);
+  const syncTurnRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  React.useEffect(
+    () => () => {
+      if (syncTurnRef.current) clearTimeout(syncTurnRef.current);
+    },
+    []
+  );
+
   const syncNow = React.useCallback(() => {
     if (selected) {
       invalidateCachedMailThread(selected.account, selected.threadId);
     }
-    void loadThreads({ fresh: true, incremental: true });
+    setSyncTurn(true);
+    if (syncTurnRef.current) clearTimeout(syncTurnRef.current);
+    syncTurnRef.current = setTimeout(() => {
+      syncTurnRef.current = null;
+      setSyncTurn(false);
+    }, 1000);
+    /*
+      And say what came in, when something did.
+
+      A poll that finds nothing changes nothing on screen, which is the right
+      answer and an easy one to read as "it did not run". The turn of the icon
+      says it ran; this says what it found, and stays quiet when the answer is
+      nothing — a message saying "no new mail" after every press is a message
+      nobody thanks you for.
+    */
+    const before = new Set(threadsRef.current.map((t) => threadKey(t)));
+    void loadThreads({ fresh: true, incremental: true }).then((ok) => {
+      if (!ok) return;
+      const arrived = threadsRef.current.filter(
+        (t) => !before.has(threadKey(t))
+      ).length;
+      if (!arrived) return;
+      toast.success(
+        arrived === 1
+          ? mailSay("syncFoundOne")
+          : mailSay("syncFoundMany", { count: arrived })
+      );
+    });
   }, [loadThreads, selected]);
 
   /**
@@ -5212,7 +5329,11 @@ export function MailPage({
   }, [listCacheKey, prefetchOrderKey, loadingList, refreshing]);
 
   // Browse: group by day. Search / snoozed: one flat list (no day buckets).
-  const groups: { label: string; items: MailThreadSummary[] }[] = [];
+  const groups: {
+    /** The day heading's key, or "" for a flat list with no headings. */
+    label: MailStringKey | "";
+    items: MailThreadSummary[];
+  }[] = [];
   if (debouncedSearch || tab === "snoozed") {
     if (flowThreads.length) groups.push({ label: "", items: flowThreads });
   } else {
@@ -5360,6 +5481,25 @@ export function MailPage({
     },
     []
   );
+  /**
+   * Put one mailbox in front of another, from the folder rail.
+   *
+   * The whole arrangement is written down, not the one move: it is the
+   * reader's own order of their mailboxes, and it belongs to them rather than
+   * to Gmail or to Outlook — see `@/lib/mail/account-order` for why neither
+   * provider can hold it. `before` is null for the end of the list.
+   */
+  const onReorderAccount = React.useCallback(
+    (moved: string, before: string | null) => {
+      setAccountEmails((prev) => {
+        const next = moveAccountBefore(prev, moved, before);
+        writeAccountOrder(next);
+        return next;
+      });
+    },
+    []
+  );
+
   const foldersMenu = (iconOnly: boolean) => (
     <FoldersTabMenu
       onNavy={chromeDark}
@@ -5417,7 +5557,7 @@ export function MailPage({
         // Stay where you are. A new folder is empty, and it is made in order
         // to put something in it — opening it takes you away from the mail
         // you meant to file.
-        toast.success(`${json.folder.name} is ready`);
+        toast.success(mailSay("folderReady", { name: json.folder.name }));
       }}
     />
   );
@@ -5444,6 +5584,7 @@ export function MailPage({
     <MailFolderRail
       accountFolders={accountFolders}
       loading={foldersLoading}
+      onReorderAccount={onReorderAccount}
       accounts={accountEmails}
       openFolder={
         activeFolder
@@ -5533,7 +5674,7 @@ export function MailPage({
         await refreshFolders();
         // Stay where you are. A new folder is empty, and it is made in
         // order to put something in it.
-        toast.success(`${json.folder.name} is ready`);
+        toast.success(mailSay("folderReady", { name: json.folder.name }));
       }}
       onRenameFolder={async (account, name, newName) => {
         /**
@@ -5682,8 +5823,8 @@ export function MailPage({
         {!railShowing ? (
         <button
           type="button"
-          title="Show folders"
-          aria-label="Show folders"
+          title={t("showFolders")}
+          aria-label={t("showFolders")}
           className={cn(
             // The same 3px of transparent border the tabs carry, so the row
             // bottom-aligns it with them — but it never lights, because
@@ -5752,7 +5893,7 @@ export function MailPage({
                     : undefined;
                   const label = custom
                     ? custom.name
-                    : mailBuiltinTabLabels()[id] ?? id;
+                    : mailBuiltinTabLabels(t)[id] ?? id;
                   return (
                     <SortableMailListTab
                       key={id}
@@ -5780,7 +5921,7 @@ export function MailPage({
                     }}
                     className="shrink-0 whitespace-nowrap border-b-[3px] border-[var(--mail-tab-active)] pb-0.5 font-medium text-[var(--mail-chrome-fg)]"
                   >
-                    {mailBuiltinTabLabels().sent}
+                    {mailBuiltinTabLabels(t).sent}
                   </button>
                 ) : null}
                 {tab === "junk" ? (
@@ -5792,7 +5933,7 @@ export function MailPage({
                     }}
                     className="shrink-0 whitespace-nowrap border-b-[3px] border-[var(--mail-tab-active)] pb-0.5 font-medium text-[var(--mail-chrome-fg)]"
                   >
-                    {mailBuiltinTabLabels().junk}
+                    {mailBuiltinTabLabels(t).junk}
                   </button>
                 ) : null}
                 {tab === "trash" ? (
@@ -5804,7 +5945,7 @@ export function MailPage({
                     }}
                     className="shrink-0 whitespace-nowrap border-b-[3px] border-[var(--mail-tab-active)] pb-0.5 font-medium text-[var(--mail-chrome-fg)]"
                   >
-                    {mailBuiltinTabLabels().trash}
+                    {mailBuiltinTabLabels(t).trash}
                   </button>
                 ) : null}
                 {tab === "drafts" ? (
@@ -5816,7 +5957,7 @@ export function MailPage({
                     }}
                     className="shrink-0 whitespace-nowrap border-b-[3px] border-[var(--mail-tab-active)] pb-0.5 font-medium text-[var(--mail-chrome-fg)]"
                   >
-                    {mailBuiltinTabLabels().drafts}
+                    {mailBuiltinTabLabels(t).drafts}
                   </button>
                 ) : null}
                 {tab === "snoozed" ||
@@ -5834,13 +5975,13 @@ export function MailPage({
                         : "border-transparent text-[var(--mail-chrome-muted)] hover:text-[var(--mail-chrome-fg)]"
                     )}
                   >
-                    {mailBuiltinTabLabels().snoozed}
+                    {mailBuiltinTabLabels(t).snoozed}
                   </button>
                 ) : null}
                 <button
                   type="button"
-                  title="New list"
-                  aria-label="Create a new list tab"
+                  title={t("newList")}
+                  aria-label={t("newListTab")}
                   aria-expanded={listEditor != null}
                   onClick={() =>
                     setListEditor((prev) =>
@@ -5876,8 +6017,8 @@ export function MailPage({
       <MailCustomListEditor
         open={listEditor != null}
         onCancel={() => setListEditor(null)}
-        title={editingList ? "Edit list" : "New list"}
-        submitLabel={editingList ? "Save" : "Create list"}
+        title={editingList ? t("editList") : t("newList")}
+        submitLabel={editingList ? t("save") : t("createList")}
         initial={
           editingList
             ? {
@@ -5934,9 +6075,12 @@ export function MailPage({
           `deep` makes empty chrome draggable; inputs stay interactive. */}
       <div
         data-tauri-drag-region="deep"
-        className="relative flex h-11 shrink-0 items-center gap-3 border-b bg-[var(--mail-chrome)] pr-3"
+        className="relative flex h-11 shrink-0 items-center gap-3 border-b bg-[var(--mail-chrome)]"
         style={{
           borderColor: "var(--mail-chrome-border)",
+          // Where the row stops. A shell that puts window buttons at the
+          // right of the strip (the standalone app on Windows) sets this.
+          paddingRight: "var(--mail-titlebar-right, 12px)",
           /*
            * Where the controls start: the sidebar's default width on a big
            * window, so tabs and search stand over the reading pane rather
@@ -5949,12 +6093,19 @@ export function MailPage({
            * for without looking is always in the same place; and a rule of
            * the window's width, not the sidebar's, so dragging the sidebar
            * does not drag the search field.
+           *
+           * A shell with no traffic lights to clear overrides the whole rule
+           * through the variable — see the standalone app's Windows window
+           * in apps/mail/src/standalone.css.
            */
-          paddingLeft: "clamp(80px, calc(100vw - 800px), 380px)",
+          paddingLeft:
+            "var(--mail-titlebar-left, clamp(80px, calc(100vw - 800px), 380px))",
         }}
       >
-        {/* Thread/person, density and settings, then search takes the rest. */}
-        <div className="-ml-[4px] flex min-w-0 max-w-3xl flex-1 items-center gap-2">
+        {/* Thread/person, density and settings, then search takes the rest.
+            A shell can put the search first instead — see the standalone
+            app's Windows window in apps/mail/src/standalone.css. */}
+        <div className="mail-titlebar-controls -ml-[4px] flex min-w-0 max-w-3xl flex-1 items-center gap-2">
           <MailViewModeTabs
             viewMode={viewMode}
             onChange={setViewMode}
@@ -5986,6 +6137,7 @@ export function MailPage({
           />
           <label
             className={cn(
+              "mail-titlebar-search",
               // h-7 (~28px) centers with traffic lights in the 44px strip.
               "relative flex h-7 min-w-0 flex-1 items-center rounded-full border border-stone-200 bg-white shadow-sm",
               "focus-within:ring-2 focus-within:ring-[var(--mail-title-search-ring)]"
@@ -6027,14 +6179,15 @@ export function MailPage({
                 folderName: activeFolder?.name ?? null,
                 customListName: activeCustomList?.name ?? null,
                 tab,
+                t,
               })}
               className="h-full min-w-0 flex-1 border-0 bg-transparent py-1 pl-2 pr-8 text-[13px] text-stone-800 outline-none placeholder:text-stone-400 shadow-none [&::-webkit-search-cancel-button]:hidden"
             />
             {search ? (
               <button
                 type="button"
-                title="Clear search"
-                aria-label="Clear search"
+                title={t("clearSearch")}
+                aria-label={t("clearSearch")}
                 className="absolute right-1.5 flex h-5 w-5 items-center justify-center rounded-full text-stone-400 hover:bg-stone-100 hover:text-stone-700"
                 onPointerDown={beginNativeWindowDragOnMove}
                 onClick={() => setSearch("")}
@@ -6110,11 +6263,11 @@ export function MailPage({
         <div
           role="separator"
           aria-orientation="vertical"
-          aria-label="Resize folders"
+          aria-label={t("resizeFolders")}
           aria-valuenow={Math.round(railWidth)}
           aria-valuemin={FOLDER_RAIL_MIN_WIDTH}
           aria-valuemax={FOLDER_RAIL_MAX_WIDTH}
-          title="Drag to resize folders"
+          title={t("dragToResizeFolders")}
           // On the right, the rail grows as the pointer goes left.
           onPointerDown={(e) => startRailResize(e, { invertDrag: railOnRight })}
           className="w-1 shrink-0 cursor-col-resize touch-none bg-transparent transition-colors hover:bg-[var(--mail-chrome-border)] active:bg-[var(--mail-chrome-border)]"
@@ -6161,8 +6314,8 @@ export function MailPage({
           <div className="flex shrink-0 flex-col items-center gap-0.5 border-b border-[var(--mail-chrome-border)] px-1 py-2">
             <button
               type="button"
-              title="New email"
-              aria-label="New email"
+              title={t("newEmail")}
+              aria-label={t("newEmail")}
               className={chromeIconBtn}
               onClick={() => startCompose()}
             >
@@ -6174,12 +6327,12 @@ export function MailPage({
             />
             <button
               type="button"
-              title="Sync inbox"
-              aria-label="Sync inbox"
+              title={t("syncInbox")}
+              aria-label={t("syncInbox")}
               className={chromeIconBtn}
               onClick={syncNow}
             >
-              <SyncIcon className="h-4 w-4" spinning={refreshing} />
+              <SyncIcon className="h-4 w-4" spinning={refreshing || syncTurn} />
             </button>
             {foldersMenu(true)}
             {activeFolder ? (
@@ -6214,8 +6367,8 @@ export function MailPage({
           <div className="-ml-[4px] mb-1 flex h-11 items-center gap-1">
             <Button
               type="button"
-              title="New email"
-              aria-label="New email"
+              title={t("newEmail")}
+              aria-label={t("newEmail")}
               variant={chromeDark ? "default" : "outline"}
               className={cn(
                 // flex overrides Button's inline-flex so it sits flush in the row.
@@ -6227,12 +6380,12 @@ export function MailPage({
               onClick={() => startCompose()}
             >
               <SquarePen className="h-4 w-4" />
-              {listWidth < 250 ? "New" : "New email"}
+              {listWidth < 250 ? t("newShort") : t("newEmail")}
             </Button>
             <button
               type="button"
-              title="Sync inbox"
-              aria-label="Sync inbox"
+              title={t("syncInbox")}
+              aria-label={t("syncInbox")}
               onPointerDown={beginNativeWindowDragOnMove}
               onClick={syncNow}
               className={cn(
@@ -6242,13 +6395,15 @@ export function MailPage({
                   : "text-stone-500 hover:bg-stone-200/70 hover:text-stone-800"
               )}
             >
-              <SyncIcon className="h-4 w-4" spinning={refreshing} />
-              Sync
+              <SyncIcon className="h-4 w-4" spinning={refreshing || syncTurn} />
+              {t("sync")}
             </button>
             <button
               type="button"
-              title={listExpanded ? "Restore list size" : "Expand list"}
-              aria-label={listExpanded ? "Restore list size" : "Expand list"}
+              title={listExpanded ? t("restoreListSize") : t("expandList")}
+              aria-label={
+                listExpanded ? t("restoreListSize") : t("expandList")
+              }
               aria-pressed={listExpanded}
               className={cn(
                 chromeIconBtn,
@@ -6281,14 +6436,19 @@ export function MailPage({
             >
               <CalendarClock className="h-3.5 w-3.5 shrink-0" />
               <span className="truncate">
-                Out-of-office reply on:{" "}
+                {t("outOfOfficeReplyOn")}{" "}
                 {autoReplies
                   .filter((a) => autoReplyActive(a))
                   .map(
                     (a) =>
                       formatAccountChipLabel(a.account, accountLabels) +
                       (a.endTime !== null
-                        ? ` until ${new Date(a.endTime - 1).toLocaleDateString(undefined, { day: "numeric", month: "short" })}`
+                        ? ` ${t("outOfOfficeUntil", {
+                            date: new Date(a.endTime - 1).toLocaleDateString(
+                              currentMailLocale(),
+                              { day: "numeric", month: "short" }
+                            ),
+                          })}`
                         : "")
                   )
                   .join(", ")}
@@ -6305,7 +6465,7 @@ export function MailPage({
           <div
             role="separator"
             aria-orientation="vertical"
-            aria-label="Resize controls column"
+            aria-label={t("resizeControls")}
             aria-valuenow={Math.round(splitChromeWidth)}
             aria-valuemin={
               listExpanded && !listVertical
@@ -6315,7 +6475,7 @@ export function MailPage({
             aria-valuemax={
               listExpanded && !listVertical ? MAX_LIST_ARIA : MAX_CONTROLS_WIDTH
             }
-            title="Drag to resize"
+            title={t("dragToResize")}
             onPointerDown={startSplitChromeResize}
             // Sit on the pane side of the border (no -ml overlap) so chrome
             // never paints past the controls column edge.
@@ -6363,12 +6523,14 @@ export function MailPage({
             <div className="border-b border-white/5 px-5 pb-2 pt-3">
               <p className="flex items-center gap-1.5 text-[12px] font-semibold text-white/75">
                 <Loader2 className="h-3 w-3 animate-spin" aria-hidden />
-                Searching {mailboxScopeEmails.length}{" "}
-                {mailboxScopeEmails.length === 1 ? "mailbox" : "mailboxes"}…
+                {mailboxScopeEmails.length === 1
+                  ? t("searchingMailbox")
+                  : t("searchingMailboxes", {
+                      count: mailboxScopeEmails.length,
+                    })}
               </p>
               <p className="pt-0.5 text-[11px] leading-snug text-white/45">
-                Each one is asked on its own, so more results can still land.
-                Scroll to the end for Load more.
+                {t("searchingHint")}
               </p>
             </div>
           ) : null}
@@ -6435,20 +6597,17 @@ export function MailPage({
             listNarrow ? (
               <p
                 className="px-1 py-6 text-center text-[10px] leading-tight text-[var(--mail-chrome-muted)]"
-                title="Connect an account from Display & accounts"
+                title={t("connectFromSettings")}
               >
-                Connect
+                {t("connect")}
               </p>
             ) : (
             <div className="px-5 py-8">
               <p className="text-sm font-medium text-[var(--mail-chrome-fg)]">
-                Connect an account to get started
+                {t("connectToStart")}
               </p>
               <p className="mt-1 text-sm text-[var(--mail-chrome-muted)]">
-                Your mail stays in Gmail or Outlook. This app reads from those
-                accounts — about the latest 100 conversations per mailbox to
-                browse, with search and open-thread pulling more from the
-                provider as needed.
+                {t("connectIntro")}
               </p>
               <div className="mt-4 flex flex-wrap gap-2">
                 <Button asChild size="sm" className="gap-1.5">
@@ -6464,12 +6623,12 @@ export function MailPage({
                     {connecting === "gmail" ? (
                       <>
                         <Loader2 className="h-4 w-4 animate-spin" />
-                        Opening Gmail…
+                        {t("openingProvider", { provider: "Gmail" })}
                       </>
                     ) : (
                       <>
                         <Plus className="h-4 w-4" />
-                        Connect Gmail
+                        {t("connectProvider", { provider: "Gmail" })}
                       </>
                     )}
                   </a>
@@ -6492,12 +6651,12 @@ export function MailPage({
                     {connecting === "outlook" ? (
                       <>
                         <Loader2 className="h-4 w-4 animate-spin" />
-                        Opening Outlook…
+                        {t("openingProvider", { provider: "Outlook" })}
                       </>
                     ) : (
                       <>
                         <Plus className="h-4 w-4" />
-                        Connect Outlook
+                        {t("connectProvider", { provider: "Outlook" })}
                       </>
                     )}
                   </a>
@@ -6585,8 +6744,8 @@ export function MailPage({
                   const personTitle = [
                     row.name,
                     newest.subject || newest.snippet,
-                    personHasDraft ? "Draft" : null,
-                    row.unread ? "Unread" : null,
+                    personHasDraft ? t("draft") : null,
+                    row.unread ? t("unread") : null,
                   ]
                     .filter(Boolean)
                     .join(" — ");
@@ -6703,11 +6862,11 @@ export function MailPage({
                     {listNarrow ? (
                       <div
                         className="flex justify-center pb-0.5 pt-2"
-                        title="Pinned"
+                        title={t("pinned")}
                       >
                         <Pin
                           className="h-3 w-3 text-[var(--mail-chrome-faint)]"
-                          aria-label="Pinned"
+                          aria-label={t("pinned")}
                         />
                       </div>
                     ) : (
@@ -6715,7 +6874,7 @@ export function MailPage({
                         {/* Inherits, so it stays the colour of the word it
                             sits beside rather than picking its own. */}
                         <Pin className="h-3 w-3" aria-hidden />
-                        Pinned
+                        {t("pinned")}
                       </p>
                     )}
                     <div className="max-h-[18rem] overflow-y-auto overscroll-contain">
@@ -6836,7 +6995,7 @@ export function MailPage({
                     <div key={group.label || "results"}>
                       {group.label && !listNarrow ? (
                         <p className="px-5 pb-1 pt-4 text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--mail-chrome-faint)]">
-                          {group.label}
+                          {t(group.label as MailStringKey)}
                         </p>
                       ) : (
                         <div className={listNarrow ? "pt-0.5" : "pt-2"} />
@@ -6879,7 +7038,7 @@ export function MailPage({
               search that has answered still looks finished, so say it is not. */}
           {debouncedSearch && listCursor && !loadingList && !listNarrow ? (
             <p className="px-5 pt-3 text-[11px] leading-snug text-white/40">
-              These are the first matches each mailbox found. There may be more.
+              {t("firstMatches")}
             </p>
           ) : null}
           {listCursor && !loadingList ? (
@@ -6889,8 +7048,8 @@ export function MailPage({
               <button
                 type="button"
                 disabled={loadingMore}
-                title="Load more"
-                aria-label={loadingMore ? "Loading more" : "Load more"}
+                title={t("loadMore")}
+                aria-label={loadingMore ? t("loadingMore") : t("loadMore")}
                 onClick={() => void loadMoreThreads()}
                 className={cn(
                   "flex w-full items-center justify-center gap-2 rounded-md py-2 text-xs font-medium text-[var(--mail-chrome-muted)] transition-colors hover:bg-[var(--mail-chrome-hover)] hover:text-[var(--mail-chrome-fg)] disabled:opacity-60",
@@ -6902,7 +7061,7 @@ export function MailPage({
                 ) : listNarrow ? (
                   <Plus className="h-3.5 w-3.5" />
                 ) : null}
-                {listNarrow ? null : loadingMore ? "Loading…" : "Load more"}
+                {listNarrow ? null : loadingMore ? t("loading") : t("loadMore")}
               </button>
             </div>
           ) : null}
@@ -6942,7 +7101,7 @@ export function MailPage({
             : listVertical
               ? detailOpen
                 ? "Drag to resize — pull small to hide"
-                : "Drag to resize"
+                : t("dragToResize")
               : detailOpen
                 ? "Drag to resize — narrow for avatars, smaller to hide"
                 : "Drag to resize — narrow for avatar rail"
@@ -7152,11 +7311,10 @@ export function MailPage({
         ) : !accountEmails.length ? (
           <div className="flex flex-1 flex-col items-center justify-center gap-2 px-6 text-center">
             <p className="text-sm font-medium text-stone-600">
-              No mailbox connected yet
+              {t("noMailboxConnected")}
             </p>
             <p className="max-w-sm text-sm text-stone-400">
-              Connect Gmail or Outlook on the left. Mail stays with your
-              provider; we only fetch what you browse, search, or open.
+              {t("noMailboxHint")}
             </p>
           </div>
         ) : loadingList && !threads.length && !pinnedThreads.length ? (
@@ -7172,10 +7330,10 @@ export function MailPage({
             />
             <div>
               <p className="text-sm font-medium text-stone-600">
-                Loading inbox…
+                {t("loadingInbox")}
               </p>
               <p className="mt-1 text-sm text-stone-400">
-                Fetching conversations from your connected accounts.
+                {t("loadingInboxHint")}
               </p>
             </div>
           </div>

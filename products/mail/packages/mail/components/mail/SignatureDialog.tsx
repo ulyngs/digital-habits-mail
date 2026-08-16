@@ -14,6 +14,7 @@ import { SignatureContent } from "@/components/mail/signature-view";
 import { Popover, PopoverTrigger } from "@/components/ui/popover";
 import { RichTextEditor } from "@/components/ui/RichTextEditor";
 import { mailApiJson as apiJson } from "@/lib/mail/api";
+import { useMailT } from "@/lib/mail/i18n";
 import {
   htmlToPlainText,
   isLikelyHtml,
@@ -111,6 +112,7 @@ export function SignatureDialog({
   onClose: () => void;
   onSaved: (account: string, settings: SignatureSettings) => void;
 }) {
+  const t = useMailT();
   const [settings, setSettings] = React.useState<
     Record<string, SignatureSettings>
   >({});
@@ -161,7 +163,7 @@ export function SignatureDialog({
       // Back to what it was. A tick that stayed down while the setting
       // behind it did not is worse than a tick that springs back.
       if (previous) setSettings((all) => ({ ...all, [account]: previous }));
-      toast.error(err instanceof Error ? err.message : "Couldn't save");
+      toast.error(err instanceof Error ? err.message : t("couldNotSave"));
       return false;
     }
   };
@@ -177,7 +179,7 @@ export function SignatureDialog({
     const ok = await persist(editing, { ...current, signature });
     setSaving(false);
     if (ok) {
-      toast.success("Signature saved");
+      toast.success(t("signatureSaved"));
       setEditing(null);
     }
   };
@@ -187,7 +189,7 @@ export function SignatureDialog({
   if (editing) {
     return (
       <SettingsDialog
-        title="Signature"
+        title={t("signature")}
         subtitle={editing}
         onClose={() => setEditing(null)}
         footer={
@@ -197,7 +199,7 @@ export function SignatureDialog({
               className={settingsSecondaryButton}
               onClick={() => setEditing(null)}
             >
-              Cancel
+              {t("cancel")}
             </button>
             <button
               type="button"
@@ -205,7 +207,7 @@ export function SignatureDialog({
               disabled={saving}
               onClick={() => void saveEditor()}
             >
-              {saving ? "Saving…" : "Save"}
+              {saving ? t("saving") : t("save")}
             </button>
           </>
         }
@@ -218,7 +220,7 @@ export function SignatureDialog({
               settings[editing]?.signature ?? ""
             )}
             onChange={setDraft}
-            placeholder="Your signature…"
+            placeholder={t("signaturePlaceholder")}
             minHeight={130}
           />
         </div>
@@ -228,8 +230,8 @@ export function SignatureDialog({
 
   return (
     <SettingsDialog
-      title="Signatures"
-      subtitle="What goes at the bottom of the mail you send, per address."
+      title={t("signatures")}
+      subtitle={t("signaturesSubtitle")}
       onClose={onClose}
       footer={
         <button
@@ -237,7 +239,7 @@ export function SignatureDialog({
           className={settingsPrimaryButton}
           onClick={onClose}
         >
-          Done
+          {t("done")}
         </button>
       }
     >
@@ -281,7 +283,9 @@ export function SignatureDialog({
           ))}
         </SettingsGroup>
       ) : (
-        <p className="py-8 text-center text-sm text-stone-400">Loading…</p>
+        <p className="py-8 text-center text-sm text-stone-400">
+          {t("loading")}
+        </p>
       )}
     </SettingsDialog>
   );
@@ -303,6 +307,7 @@ function SignatureAccountSection({
   onCopyFrom: (source: string) => void;
   onToggle: (patch: Partial<SignatureSettings>) => void;
 }) {
+  const t = useMailT();
   const has = Boolean(settings.signature.trim());
   return (
     <div className="px-4 py-3.5">
@@ -315,7 +320,7 @@ function SignatureAccountSection({
           className="shrink-0 text-sm text-teal-700 underline-offset-2 hover:underline"
           onClick={onEdit}
         >
-          Edit
+          {t("edit")}
         </button>
       </div>
 
@@ -326,7 +331,7 @@ function SignatureAccountSection({
           <SignatureContent signature={settings.signature} />
         ) : (
           <div className="flex items-center justify-between gap-3">
-            <p className="text-sm text-stone-400">No signature yet</p>
+            <p className="text-sm text-stone-400">{t("noSignatureYet")}</p>
             {copyFrom.length ? (
               <CopyFromControl accounts={copyFrom} onPick={onCopyFrom} />
             ) : null}
@@ -337,12 +342,12 @@ function SignatureAccountSection({
       {has ? (
         <div className="mt-2.5 flex flex-wrap items-center gap-x-5 gap-y-2">
           <IncludeCheckbox
-            label="On new messages"
+            label={t("onNewMessages")}
             checked={settings.includeOnNew}
             onChange={(includeOnNew) => onToggle({ includeOnNew })}
           />
           <IncludeCheckbox
-            label="On replies"
+            label={t("onReplies")}
             checked={settings.includeOnReplies}
             onChange={(includeOnReplies) => onToggle({ includeOnReplies })}
           />
@@ -387,8 +392,12 @@ function CopyFromControl({
   accounts: string[];
   onPick: (account: string) => void;
 }) {
+  const t = useMailT();
   const [open, setOpen] = React.useState(false);
-  const label = accounts.length === 1 ? `Copy from ${accounts[0]}` : "Copy from…";
+  const label =
+    accounts.length === 1
+      ? t("copyFromAccount", { account: accounts[0] })
+      : t("copyFrom");
 
   if (accounts.length === 1) {
     return (

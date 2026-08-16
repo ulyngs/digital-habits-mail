@@ -179,13 +179,17 @@ fn open_external_url(app: tauri::AppHandle, url: String) -> Result<(), String> {
     .map_err(|e| e.to_string())
 }
 
-#[cfg_attr(mobile, tauri::mobile_entry_point)]
-pub fn run() {
-  let builder = tauri::Builder::default().plugin(tauri_plugin_opener::init());
-  // Remote images (dhmail://) and the print document (dhprint://). See the
-  // mail-native crate.
-  mail_native::register_schemes(builder)
-    .invoke_handler(tauri::generate_handler![
+/// The commands every platform carries, plus whatever a platform adds.
+///
+/// Two hand-kept lists would drift. Printing and the Mac address book are
+/// AppKit, so they exist on macOS and nowhere else; the page is written to
+/// expect that. `invoke` on a command the shell does not carry rejects, and
+/// the mail package answers a rejection by falling back — an iframe prints,
+/// and the contact source reports itself unavailable. See
+/// `lib/native-shell.ts` and `components/mail/print-mail.ts`.
+macro_rules! mail_commands {
+  ($($platform:path),* $(,)?) => {
+    tauri::generate_handler![
       open_calendar_invite,
       mail_native::popout::open_chat_popout,
       mail_native::popout::resize_chat_popout,
@@ -208,14 +212,32 @@ pub fn run() {
       mail_native::planner::planner_fetch,
       mail_native::planner::planner_show_record,
       open_external_url,
-      printing::print_document,
       downloads::save_attachment,
       oauth::oauth_token_request,
-      contacts::mac_contacts_authorization,
-      contacts::mac_contacts_request_access,
-      contacts::mac_contacts_list,
-      contacts::open_contacts_privacy_settings
-    ])
+      $($platform),*
+    ]
+  };
+}
+
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
+pub fn run() {
+  let builder = tauri::Builder::default().plugin(tauri_plugin_opener::init());
+  // Remote images (dhmail://) and, on macOS, the print document (dhprint://).
+  // See the mail-native crate.
+  let builder = mail_native::register_schemes(builder);
+
+  #[cfg(target_os = "macos")]
+  let builder = builder.invoke_handler(mail_commands![
+    printing::print_document,
+    contacts::mac_contacts_authorization,
+    contacts::mac_contacts_request_access,
+    contacts::mac_contacts_list,
+    contacts::open_contacts_privacy_settings,
+  ]);
+  #[cfg(not(target_os = "macos"))]
+  let builder = builder.invoke_handler(mail_commands![]);
+
+  builder
     .setup(|app| {
       if cfg!(debug_assertions) {
         app.handle().plugin(
@@ -261,7 +283,13 @@ pub fn run() {
       // waits in front of — it is the page whose pixels become paper, and the
       // splash was landing on it: a single message printed the splash instead
       // of the message, and a thread came out blank behind it.
+      //
+      // Only macOS has such a page. Elsewhere the print document is an iframe
+      // inside the app's own window, which never loads a page of its own.
+      #[cfg(target_os = "macos")]
       let is_print = url.starts_with(&format!("{}://", printing::SCHEME));
+      #[cfg(not(target_os = "macos"))]
+      let is_print = false;
       let is_chrome = is_popout || is_print;
 
       match payload.event() {
@@ -297,10 +325,12 @@ pub fn run() {
     })
     .build(tauri::generate_context!())
     .expect("error while building tauri application")
-    .run(|app, event| {
+    // Underscored because the only thing that reads either is the macOS arm
+    // below, and a plain name is an unused-variable warning everywhere else.
+    .run(|_app, _event| {
       #[cfg(target_os = "macos")]
-      if let tauri::RunEvent::Reopen { .. } = event {
-        show_main_window(app);
+      if let tauri::RunEvent::Reopen { .. } = _event {
+        show_main_window(_app);
       }
     });
 }

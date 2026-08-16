@@ -5,31 +5,39 @@
  * else, so a change here shows up the same way in every surface.
  */
 
+import {
+  currentMailLocale,
+  type MailStringKey,
+  type MailT,
+} from "@/lib/mail/i18n-strings";
+
 export function startOfDay(d: Date): number {
   const copy = new Date(d);
   copy.setHours(0, 0, 0, 0);
   return copy.getTime();
 }
 
-export function dayBucket(iso: string): string {
+/** The heading a day belongs under, as a key into `@/lib/mail/i18n`. */
+export function dayBucket(iso: string): MailStringKey {
   const now = new Date();
   const today = startOfDay(now);
   const then = startOfDay(new Date(iso));
   const dayMs = 24 * 60 * 60 * 1000;
-  if (then >= today) return "Today";
-  if (then >= today - dayMs) return "Yesterday";
+  if (then >= today) return "bucketToday";
+  if (then >= today - dayMs) return "bucketYesterday";
   const daysAgo = Math.floor((today - then) / dayMs);
   const weekday = now.getDay() === 0 ? 7 : now.getDay(); // Monday-based
-  if (daysAgo < weekday) return "Earlier this week";
-  if (daysAgo < weekday + 7) return "Last week";
-  return "Earlier";
+  if (daysAgo < weekday) return "bucketEarlierThisWeek";
+  if (daysAgo < weekday + 7) return "bucketLastWeek";
+  return "bucketEarlier";
 }
 
 export function rowTime(iso: string, options?: { withYear?: boolean }): string {
   const d = new Date(iso);
+  const locale = currentMailLocale();
   if (options?.withYear) {
     // Search spans years — always show an absolute date.
-    return d.toLocaleDateString(undefined, {
+    return d.toLocaleDateString(locale, {
       day: "numeric",
       month: "short",
       year: "numeric",
@@ -37,13 +45,13 @@ export function rowTime(iso: string, options?: { withYear?: boolean }): string {
   }
   const bucket = dayBucket(iso);
   // Today / Yesterday already have section headers — show the clock time.
-  if (bucket === "Today" || bucket === "Yesterday") {
-    return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  if (bucket === "bucketToday" || bucket === "bucketYesterday") {
+    return d.toLocaleTimeString(locale, { hour: "2-digit", minute: "2-digit" });
   }
-  if (bucket === "Earlier this week") {
-    return d.toLocaleDateString(undefined, { weekday: "short" });
+  if (bucket === "bucketEarlierThisWeek") {
+    return d.toLocaleDateString(locale, { weekday: "short" });
   }
-  return d.toLocaleDateString(undefined, { day: "numeric", month: "short" });
+  return d.toLocaleDateString(locale, { day: "numeric", month: "short" });
 }
 
 /**
@@ -54,7 +62,7 @@ export function rowTime(iso: string, options?: { withYear?: boolean }): string {
  */
 export function timeOfDay(iso: string | null): string {
   if (!iso) return "";
-  return new Date(iso).toLocaleTimeString([], {
+  return new Date(iso).toLocaleTimeString(currentMailLocale(), {
     hour: "2-digit",
     minute: "2-digit",
   });
@@ -73,16 +81,16 @@ export function sameDay(a: string | null, b: string | null): boolean {
  * Earlier this week, Last week — and "Earlier" over a run of bubbles says
  * nothing about which day they were. This names the day.
  */
-export function chatDayLabel(iso: string | null): string {
+export function chatDayLabel(iso: string | null, t: MailT): string {
   if (!iso) return "";
   const then = startOfDay(new Date(iso));
   const today = startOfDay(new Date());
   const dayMs = 24 * 60 * 60 * 1000;
-  if (then === today) return "Today";
-  if (then === today - dayMs) return "Yesterday";
+  if (then === today) return t("bucketToday");
+  if (then === today - dayMs) return t("bucketYesterday");
   const d = new Date(iso);
   const withinYear = d.getFullYear() === new Date().getFullYear();
-  return d.toLocaleDateString(undefined, {
+  return d.toLocaleDateString(currentMailLocale(), {
     weekday: "short",
     day: "numeric",
     month: "short",
@@ -92,7 +100,7 @@ export function chatDayLabel(iso: string | null): string {
 
 export function shortDate(iso: string | null): string {
   if (!iso) return "";
-  return new Date(iso).toLocaleDateString(undefined, {
+  return new Date(iso).toLocaleDateString(currentMailLocale(), {
     day: "numeric",
     month: "short",
   });
@@ -101,7 +109,10 @@ export function shortDate(iso: string | null): string {
 export function messageStamp(iso: string | null): string {
   if (!iso) return "";
   const d = new Date(iso);
-  return `${shortDate(iso)}, ${d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
+  return `${shortDate(iso)}, ${d.toLocaleTimeString(currentMailLocale(), {
+    hour: "2-digit",
+    minute: "2-digit",
+  })}`;
 }
 
 /**

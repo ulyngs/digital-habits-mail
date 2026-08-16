@@ -63,7 +63,13 @@ export default defineConfig(({ mode }) => {
     // The standalone app's dev server is :3473. The Planner Mac app's mail
     // pane, the internal flavor, is :3474, so the two can run at once and
     // neither shows the other's flavor.
-    server: { port: flavor === "internal" ? 3474 : 3473, strictPort: true },
+    server: {
+      port: flavor === "internal" ? 3474 : 3473,
+      strictPort: true,
+      // Cargo's output is not the page. On Windows a watch on a DLL that
+      // cargo holds open fails with EBUSY and stops the dev server.
+      watch: { ignored: ["**/src-tauri/**"] },
+    },
     envPrefix: ["VITE_", "TAURI_"],
     base,
     build: { target: "esnext", outDir, emptyOutDir: true },

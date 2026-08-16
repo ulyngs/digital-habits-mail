@@ -133,15 +133,30 @@ pub fn save_attachment(
   let path = unique_path(&dir, &safe_file_name(&filename), &|p| p.exists());
   std::fs::write(&path, &bytes).map_err(|e| format!("Couldn't save the file: {e}"))?;
 
+  // The file is written either way. Failing to show it is not a failure to
+  // save it, so neither branch below stops the command.
   #[cfg(target_os = "macos")]
   {
     let mut command = std::process::Command::new("open");
     if !open {
       command.arg("-R");
     }
-    // The file is written either way. Failing to show it is not a failure to
-    // save it, so this does not stop the command.
     let _ = command.arg(&path).status();
+  }
+
+  // Everywhere else, through the opener plugin rather than a command line of
+  // our own. `explorer /select,<path>` is the Windows equivalent of `open -R`,
+  // but it wants its path punctuated in a way that does not survive being
+  // passed as one argument, and the plugin has already solved that.
+  #[cfg(not(target_os = "macos"))]
+  {
+    use tauri_plugin_opener::OpenerExt;
+    let opener = app.opener();
+    let _ = if open {
+      opener.open_path(path.to_string_lossy(), None::<&str>)
+    } else {
+      opener.reveal_item_in_dir(&path)
+    };
   }
 
   Ok(path.to_string_lossy().to_string())

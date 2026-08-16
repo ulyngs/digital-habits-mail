@@ -13,13 +13,19 @@
  * that one names a script hash for its link bridge, and this one names no
  * `script-src` at all, so nothing runs even if the sanitizer missed something.
  *
- * In the desktop app the same document goes to the shell instead. WKWebView
- * answers `window.print()` by doing nothing at all — it loads the frame, it
- * returns from the call, and `beforeprint` never fires. Printing on macOS
- * belongs to the app, not to the web view. See `products/mail/crates/mail-native/src/printing.rs`.
+ * In the Mac desktop app the same document goes to the shell instead.
+ * WKWebView answers `window.print()` by doing nothing at all — it loads the
+ * frame, it returns from the call, and `beforeprint` never fires. Printing on
+ * macOS belongs to the app, not to the web view. See
+ * `products/mail/crates/mail-native/src/printing.rs`.
+ *
+ * The Windows app is a third case that needs no third path. WebView2 prints an
+ * iframe the way a browser does, so that shell carries no print command, and
+ * the browser path above is what runs.
  */
 
 import { toast } from "sonner";
+import { mailSay } from "@/lib/mail/i18n-strings";
 
 import { sanitizeEmailHtml } from "@/components/mail/EmailHtmlView";
 import {
@@ -71,12 +77,27 @@ export function printMailMessages(input: PrintMailInput): void {
   );
 
   if (isNativeShell()) {
-    void printNativeDocument(html).catch((err: unknown) => {
-      toast.error(err instanceof Error ? err.message : "Couldn't print");
-    });
+    void printNativeDocument(html)
+      .then((printed) => {
+        // False means this shell has no print panel of its own — Windows.
+        if (!printed) printInFrame(html);
+      })
+      .catch((err: unknown) => {
+        toast.error(err instanceof Error ? err.message : mailSay("couldNotPrint"));
+      });
     return;
   }
 
+  printInFrame(html);
+}
+
+/**
+ * Print a built document through an off-screen frame, the way a browser does.
+ *
+ * This is the whole print path in a browser, and the fallback in a shell whose
+ * web view prints for itself.
+ */
+function printInFrame(html: string): void {
   // A second print before the first frame is gone would print the old one.
   document.getElementById(PRINT_FRAME_ID)?.remove();
 

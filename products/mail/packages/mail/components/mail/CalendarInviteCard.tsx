@@ -18,6 +18,7 @@ import {
 } from "@/lib/mail/ics";
 import type { MailAttachment } from "@/lib/mail/types";
 import { isNativeShell, openCalendarInvite } from "@/lib/native-shell";
+import { mailSay, useMailT } from "@/lib/mail/i18n";
 import { cn } from "@/lib/utils";
 import { mailApiFetch } from "@/lib/mail/api";
 
@@ -96,7 +97,7 @@ async function openInviteWithDefaultCalendar(input: {
       content: input.icsText,
     }),
   });
-  if (!res.ok) throw new Error("Couldn't open calendar invite");
+  if (!res.ok) throw new Error(mailSay("couldNotOpenInvite"));
 }
 
 /** Plain browser: no way to launch a native app, so download a named .ics. */
@@ -126,6 +127,7 @@ function CalendarInviteCard({
   attachment: MailAttachment;
   onUnavailable?: (attachmentId: string) => void;
 }) {
+  const t = useMailT();
   const [invite, setInvite] = React.useState<ParsedCalendarInvite | null>(null);
   const [icsText, setIcsText] = React.useState<string | null>(null);
   const [failed, setFailed] = React.useState(false);
@@ -167,7 +169,7 @@ function CalendarInviteCard({
     void (async () => {
       try {
         const res = await mailApiFetch(inlineHref);
-        if (!res.ok) throw new Error("Couldn't load invite");
+        if (!res.ok) throw new Error(mailSay("couldNotLoadInvite"));
         const text = await res.text();
         const parsed = parseCalendarInvite(text);
         if (cancelled) return;
@@ -202,7 +204,7 @@ function CalendarInviteCard({
       await openInviteWithDefaultCalendar(input);
     } catch (err) {
       toast.error(
-        err instanceof Error ? err.message : "Couldn't open calendar invite"
+        err instanceof Error ? err.message : mailSay("couldNotOpenInvite")
       );
     } finally {
       setOpening(false);
@@ -269,13 +271,13 @@ function CalendarInviteCard({
             }}
           >
             {opening
-              ? "Opening…"
+              ? t("opening")
               : canOpenApp
-                ? "Add to Calendar"
-                : "Download event"}
+                ? t("addToCalendar")
+                : t("downloadEvent")}
           </button>
           <p className="mt-1 text-[10px] leading-tight text-stone-400">
-            {canOpenApp ? "Opens in your calendar app" : "Saves a .ics file"}
+            {t(canOpenApp ? "opensInCalendarApp" : "savesIcsFile")}
           </p>
         </div>
       </div>

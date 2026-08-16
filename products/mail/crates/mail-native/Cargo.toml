@@ -18,8 +18,6 @@ log = "0.4"
 tauri = { version = "2.11.3", features = ["macos-private-api"] }
 # Local store. Bundled so no system SQLite is needed.
 rusqlite = { version = "0.32", features = ["bundled"] }
-# Refresh tokens live in the OS keychain, never in the SQLite file.
-keyring = { version = "3", features = ["apple-native"] }
 # Fetching remote images for the message view, where a webview cannot.
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
 # Loopback listener for the OAuth redirect, and the planner sign-in.
@@ -28,7 +26,12 @@ url = "2.5"
 urlencoding = "2.1"
 tauri-plugin-opener = "2.5.4"
 
+# Refresh tokens live in the OS keychain, never in the SQLite file. The store
+# behind `keyring::Entry` is chosen at build time and differs per platform: the
+# macOS keychain, and the Windows Credential Manager. The crate's own code is
+# the same on both — see db.rs and planner.rs.
 [target.'cfg(target_os = "macos")'.dependencies]
+keyring = { version = "3", features = ["apple-native"] }
 block2 = "0.6"
 objc2 = "0.6"
 objc2-app-kit = { version = "0.3", features = [
@@ -46,3 +49,6 @@ objc2-contacts = { version = "0.3", features = [
   "block2",
 ] }
 objc2-foundation = { version = "0.3", features = ["NSArray", "NSString", "NSError"] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+keyring = { version = "3", features = ["windows-native"] }

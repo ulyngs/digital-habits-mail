@@ -25,6 +25,7 @@ import {
 } from "@/lib/mail/theme";
 
 import { App } from "./App";
+import { WindowControls } from "./WindowControls";
 import { importPlannerStateOnce } from "./import-planner-state";
 import { isDemoMode } from "./demo/mode";
 import { handleDemoMailApi } from "./demo/transport";
@@ -58,7 +59,16 @@ const account = params.get("account") ?? "";
 const threadId = params.get("thread") ?? "";
 
 function Root() {
-  if (!isPopout) return <App />;
+  // The window buttons on Windows sit over the title strip. Not in the
+  // popout, which draws its own card and closes from it.
+  if (!isPopout) {
+    return (
+      <>
+        <App />
+        <WindowControls />
+      </>
+    );
+  }
   if (!account || !threadId) {
     return (
       <p className="p-6 text-sm text-stone-500">
@@ -80,6 +90,28 @@ function Root() {
 // The popout draws its own rounded card on a transparent window, so the page
 // behind it must not paint one.
 if (isPopout) document.documentElement.classList.add("dh-popout");
+
+/**
+ * Which system the window is on, for the chrome that differs.
+ *
+ * The Mac window has no system title bar: the traffic lights float over the
+ * page, and the interface leaves room for them. The Windows window has no
+ * system title bar either, and nothing at the left to leave room for, so the
+ * strip is laid out from its own left edge and the window buttons are drawn
+ * at the right. See `--mail-titlebar-left` in standalone.css and
+ * WindowControls.tsx.
+ *
+ * `userAgentData` is the reading, not `userAgent`: the window is configured
+ * with a Safari user agent string on every system, and this API is separate
+ * from it. WKWebView does not implement it at all, so a missing answer is a
+ * Mac — which is the default this only departs from.
+ */
+{
+  const platform = (
+    navigator as Navigator & { userAgentData?: { platform?: string } }
+  ).userAgentData?.platform;
+  if (platform) document.documentElement.dataset.dhOs = platform.toLowerCase();
+}
 
 /**
  * The window behind the interface.

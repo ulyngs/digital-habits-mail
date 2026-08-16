@@ -62,6 +62,7 @@ import { teamAvatarSrc } from "@/lib/mail/team-avatars";
 import type { MailMessage, MailThreadDetail } from "@/lib/mail/types";
 import { closeChatPopout, resizeChatPopout } from "@/lib/native-shell";
 import { saveThreadDraft, threadDraftKey } from "@/lib/mail/local-drafts";
+import { useMailT } from "@/lib/mail/i18n";
 import { cn } from "@/lib/utils";
 import { mailApiJson as apiJson } from "@/lib/mail/api";
 import { useMailColorMode } from "@/lib/mail/theme";
@@ -100,6 +101,7 @@ export function ChatPopout({
   personEmail: string;
   subject: string;
 }) {
+  const t = useMailT();
   const colorMode = useMailColorMode();
   const [collapsed, setCollapsed] = React.useState(false);
   const [thread, setThread] = React.useState<MailThreadDetail | null>(null);
@@ -833,8 +835,8 @@ export function ChatPopout({
       </button>
       <button
         type="button"
-        aria-label="Close"
-        title="Close"
+        aria-label={t("close")}
+        title={t("close")}
         className="rounded-md p-1.5 text-stone-500 hover:bg-stone-100 hover:text-stone-800"
         onClick={close}
       >
@@ -937,7 +939,7 @@ export function ChatPopout({
                   </p>
                 ) : !thread ? (
                   <p className="pt-6 text-center text-sm text-stone-400">
-                    Loading…
+                    {t("loading")}
                   </p>
                 ) : null}
                 {messages.map((m, i) => {
@@ -952,7 +954,7 @@ export function ChatPopout({
                       conversation the reader does. */}
                   {newDay && m.sentAt ? (
                     <p className="pb-1 pt-3 text-center text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--mail-chrome-faint)]">
-                      {chatDayLabel(m.sentAt)}
+                      {chatDayLabel(m.sentAt, t)}
                     </p>
                   ) : null}
                   <div key={m.id} className="min-w-0">
@@ -1022,8 +1024,8 @@ export function ChatPopout({
                     </span>
                     <button
                       type="button"
-                      title="Don't quote it"
-                      aria-label="Don't quote it"
+                      title={t("dontQuoteIt")}
+                      aria-label={t("dontQuoteIt")}
                       className="mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-stone-400 hover:bg-stone-100 hover:text-stone-700"
                       onClick={() => setQuoteMessageId(null)}
                     >

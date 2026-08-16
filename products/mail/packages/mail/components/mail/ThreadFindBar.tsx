@@ -10,6 +10,7 @@
 import * as React from "react";
 import { ChevronDown, ChevronUp, X } from "lucide-react";
 
+import { useMailT } from "@/lib/mail/i18n";
 import { cn } from "@/lib/utils";
 
 export function ThreadFindBar({
@@ -30,6 +31,7 @@ export function ThreadFindBar({
   onPrev: () => void;
   onClose: () => void;
 }) {
+  const t = useMailT();
   const inputRef = React.useRef<HTMLInputElement>(null);
 
   React.useEffect(() => {
@@ -48,8 +50,8 @@ export function ThreadFindBar({
         ref={inputRef}
         type="text"
         value={query}
-        aria-label="Find in this thread"
-        placeholder="Find in thread"
+        aria-label={t("findInThisThread")}
+        placeholder={t("findInThread")}
         onChange={(e) => onQueryChange(e.target.value)}
         onKeyDown={(e) => {
           if (e.key === "Escape") {
@@ -76,11 +78,11 @@ export function ThreadFindBar({
           nothingFound ? "text-rose-500" : "text-stone-500"
         )}
       >
-        {query.trim() ? (count ? `${index} of ${count}` : "None") : ""}
+        {query.trim() ? (count ? t("matchOfCount", { index, count }) : t("none")) : ""}
       </span>
       <button
         type="button"
-        aria-label="Previous match"
+        aria-label={t("previousMatch")}
         disabled={!count}
         onClick={onPrev}
         className="rounded p-1 text-stone-500 hover:bg-stone-100 hover:text-stone-900 disabled:opacity-40 disabled:hover:bg-transparent"
@@ -89,7 +91,7 @@ export function ThreadFindBar({
       </button>
       <button
         type="button"
-        aria-label="Next match"
+        aria-label={t("nextMatch")}
         disabled={!count}
         onClick={onNext}
         className="rounded p-1 text-stone-500 hover:bg-stone-100 hover:text-stone-900 disabled:opacity-40 disabled:hover:bg-transparent"
@@ -98,7 +100,7 @@ export function ThreadFindBar({
       </button>
       <button
         type="button"
-        aria-label="Close find"
+        aria-label={t("closeFind")}
         onClick={onClose}
         className="rounded p-1 text-stone-500 hover:bg-stone-100 hover:text-stone-900"
       >

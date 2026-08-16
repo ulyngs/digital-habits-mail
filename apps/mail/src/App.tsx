@@ -11,9 +11,11 @@
  */
 
 import * as React from "react";
+import { mailSay } from "@/lib/mail/i18n";
 import { toast } from "sonner";
 
 import { MailPage } from "@/components/mail/MailPage";
+import { CONTACTS_CHANGED_EVENT } from "@/components/mail/ContactSourcesDialog";
 import { mailStore } from "@/lib/mail/store";
 import type { MailStoreProvider } from "@/lib/mail/store/types";
 
@@ -73,7 +75,7 @@ export function App() {
     // the store would make them jump back for a moment.
     setOwnIdentityState(next);
     void setOwnIdentity(next).catch(() => {
-      toast.error("Couldn't save your other addresses");
+      toast.error(mailSay("couldNotSaveOtherAddresses"));
     });
   }, []);
 
@@ -168,7 +170,7 @@ export function App() {
     try {
       await signInToPlanner();
       setPlannerReady(true);
-      toast.success("Signed in to the planner");
+      toast.success(mailSay("signedInToPlanner"));
       // What the planner held for this person, once, now that it can ask.
       void (isDemoMode() ? Promise.resolve(null) : importPlannerStateOnce());
     } catch (err) {
@@ -192,6 +194,11 @@ export function App() {
         };
         const failed = json.results?.find((r) => !r.ok);
         if (failed?.error) toast.error(failed.error);
+        // The inbox loaded before this sync ended, so its rows were split
+        // against an empty address book. Tell the list to load again.
+        if (!json.skipped) {
+          window.dispatchEvent(new CustomEvent(CONTACTS_CHANGED_EVENT));
+        }
       } catch (err) {
         // Mail still works without an address book, so this only informs.
         console.warn("[mail] contact sync failed:", err);
@@ -272,7 +279,7 @@ export function App() {
           against the chrome, not to blend into it. */}
       {teamLayer && !isPane && plannerReady === false ? (
         <div className="flex items-center justify-between gap-4 border-b border-sky-200 bg-sky-50 px-4 py-2 text-sm text-sky-900">
-          <span>Sign in to the planner for the CRM and AI features.</span>
+          <span>{mailSay("signInForCrm")}</span>
           <button
             type="button"
             onClick={() => void signInPlanner()}

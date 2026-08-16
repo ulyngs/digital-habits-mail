@@ -13,6 +13,7 @@
 
 import * as React from "react";
 
+import { ShortcutKeys } from "@/components/mail/shortcut-keys";
 import {
   SettingsDialog,
   SettingsGroup,
@@ -33,6 +34,7 @@ import {
   type MailShortcut,
   type MailShortcutAction,
 } from "@/lib/mail/shortcuts";
+import { useMailT } from "@/lib/mail/i18n";
 import { useMailShortcuts } from "@/lib/mail/use-mail-shortcuts";
 import { cn } from "@/lib/utils";
 
@@ -40,6 +42,7 @@ import { cn } from "@/lib/utils";
 const MODIFIER_KEYS = new Set(["Meta", "Shift", "Alt", "Control"]);
 
 export function MailShortcutsDialog({ onClose }: { onClose: () => void }) {
+  const t = useMailT();
   const shortcuts = useMailShortcuts();
   const [capturing, setCapturing] = React.useState<MailShortcutAction | null>(
     null
@@ -69,7 +72,7 @@ export function MailShortcutsDialog({ onClose }: { onClose: () => void }) {
       };
       const reserved = reservedReason(next);
       if (reserved) {
-        setRefused(`${formatShortcut(next)} — ${reserved}.`);
+        setRefused(`${formatShortcut(next)} — ${t(reserved)}.`);
         return;
       }
       setMailShortcut(capturing, next);
@@ -78,12 +81,12 @@ export function MailShortcutsDialog({ onClose }: { onClose: () => void }) {
     };
     window.addEventListener("keydown", onKeyDown, true);
     return () => window.removeEventListener("keydown", onKeyDown, true);
-  }, [capturing]);
+  }, [capturing, t]);
 
   return (
     <SettingsDialog
-      title="Keyboard shortcuts"
-      subtitle="These work while a thread is open, and the focus is outside a text field."
+      title={t("keyboardShortcuts")}
+      subtitle={t("keyboardShortcutsSubtitle")}
       onClose={onClose}
       footer={
         <>
@@ -98,14 +101,14 @@ export function MailShortcutsDialog({ onClose }: { onClose: () => void }) {
               setRefused(null);
             }}
           >
-            Reset all
+            {t("resetAll")}
           </button>
           <button
             type="button"
             className={settingsPrimaryButton}
             onClick={onClose}
           >
-            Done
+            {t("done")}
           </button>
         </>
       }
@@ -120,7 +123,7 @@ export function MailShortcutsDialog({ onClose }: { onClose: () => void }) {
           return (
             <SettingsRow
               key={action}
-              label={MAIL_SHORTCUT_LABELS[action]}
+              label={t(MAIL_SHORTCUT_LABELS[action])}
               control={
                 <span className="flex shrink-0 items-center gap-2">
                   {!isDefault ? (
@@ -129,7 +132,7 @@ export function MailShortcutsDialog({ onClose }: { onClose: () => void }) {
                       className="text-xs text-stone-500 underline underline-offset-2 hover:text-stone-800"
                       onClick={() => setMailShortcut(action, null)}
                     >
-                      Reset
+                      {t("reset")}
                     </button>
                   ) : null}
                   <button
@@ -139,7 +142,10 @@ export function MailShortcutsDialog({ onClose }: { onClose: () => void }) {
                       setCapturing(action);
                     }}
                     className={cn(
-                      "min-w-[86px] rounded-md border px-2.5 py-1 text-center font-mono text-sm transition-colors",
+                      // Not a monospace face: it is the one font on a Mac
+                      // that does not carry every modifier glyph, and the
+                      // ones it borrows come back the wrong size.
+                      "inline-flex min-w-[86px] items-center justify-center rounded-md border px-2.5 py-1 text-center text-sm font-medium transition-colors",
                       capturing === action
                         ? "border-teal-600 bg-teal-50 text-teal-800"
                         : clashing.has(action)
@@ -147,9 +153,11 @@ export function MailShortcutsDialog({ onClose }: { onClose: () => void }) {
                           : "border-stone-200 bg-white text-stone-700 hover:bg-stone-50"
                     )}
                   >
-                    {capturing === action
-                      ? "Press keys…"
-                      : formatShortcut(shortcut)}
+                    {capturing === action ? (
+                      <span className="font-normal">{t("pressKeys")}</span>
+                    ) : (
+                      <ShortcutKeys shortcut={shortcut} />
+                    )}
                   </button>
                 </span>
               }
@@ -163,7 +171,7 @@ export function MailShortcutsDialog({ onClose }: { onClose: () => void }) {
       ) : null}
       {clashing.size ? (
         <p className="mt-2 text-sm text-red-600">
-          Two actions share a key. The one higher in this list answers it.
+          {t("shortcutClash")}
         </p>
       ) : null}
     </SettingsDialog>

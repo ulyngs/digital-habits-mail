@@ -20,6 +20,7 @@
  */
 
 import * as React from "react";
+import { useMailT } from "@/lib/mail/i18n";
 import { toast } from "sonner";
 
 /** Long enough to notice the mistake, short enough not to feel held up. */
@@ -53,6 +54,7 @@ function UndoSendPill({
   seconds: number;
   onUndo: () => void;
 }) {
+  const t = useMailT();
   const [left, setLeft] = React.useState(seconds);
   React.useEffect(() => {
     const tick = window.setInterval(() => {
@@ -70,7 +72,7 @@ function UndoSendPill({
         className="rounded-full px-2 py-0.5 text-sm font-semibold text-teal-300 hover:text-teal-200"
         onClick={onUndo}
       >
-        Undo
+        {t("undo")}
       </button>
     </div>
   );

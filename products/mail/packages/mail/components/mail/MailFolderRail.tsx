@@ -32,7 +32,6 @@ import {
   Home,
   Loader2,
   Pencil,
-  Plus,
   Send,
   ShieldAlert,
   X,
@@ -62,7 +61,9 @@ import {
   useFolderFavourites,
 } from "@/lib/mail/folder-favourites";
 import { accountsWithFolders, type MailAccountFolder } from "@/lib/mail/folder-types";
+import { moveAccountBefore } from "@/lib/mail/account-order";
 import { useIsOutlookAccount } from "@/lib/mail/use-outlook-accounts";
+import { useMailT } from "@/lib/mail/i18n";
 import { cn } from "@/lib/utils";
 
 /**
@@ -76,6 +77,7 @@ const SPRING_OPEN_MS = 600;
 
 /** Its own drag type, so nothing that takes threads mistakes one for one. */
 const MAIL_FOLDER_DRAG_TYPE = "application/x-redd-mail-folder";
+const MAIL_ACCOUNT_DRAG_TYPE = "application/x-redd-mail-account";
 
 /**
  * A chip naming the folder in the air.
@@ -133,7 +135,27 @@ function setFolderDragImage(dt: DataTransfer, label: string): void {
  * Long enough to find after the scroll settles, short enough that it is
  * gone before it becomes something to dismiss.
  */
-const REVEAL_MS = 1600;
+/** Long enough to find the folder after the rail has scrolled to it. */
+const REVEAL_MS = 2400;
+
+/** Two views side by side: 6.5rem each, and the half-rem gap between them. */
+const SYSTEM_TWO_UP_WIDTH = 216;
+
+/** The box a row scrolls inside, or null when nothing around it scrolls. */
+function scrollingAncestor(row: HTMLElement): HTMLElement | null {
+  let node = row.parentElement;
+  while (node) {
+    const overflow = getComputedStyle(node).overflowY;
+    if (
+      (overflow === "auto" || overflow === "scroll") &&
+      node.scrollHeight > node.clientHeight + 1
+    ) {
+      return node;
+    }
+    node = node.parentElement;
+  }
+  return null;
+}
 
 /**
  * The four the provider manages, drawn as themselves.
@@ -256,6 +278,16 @@ export type FolderRailProps = {
   ) => Promise<void>;
   onDeleteFolder: (account: string, name: string) => Promise<void>;
   /**
+   * Put one mailbox in front of another, or last when `before` is null.
+   *
+   * The rail says which two; what that means to a store — an order kept per
+   * provider, with the hidden mailboxes in it — is the host's to know.
+   */
+  onReorderAccount?: (
+    moved: string,
+    before: string | null
+  ) => void | Promise<void>;
+  /**
    * The mailbox a conversation is being dragged from, or null when nothing
    * is being dragged. Everything the drop rules turn on comes from this one
    * value — see `dropState` below.
@@ -354,6 +386,7 @@ function SystemRow({
   setDragOver,
   onClick,
   onDropThread,
+  onContextMenu,
 }: {
   icon: React.ComponentType<{ className?: string }>;
   label: string;
@@ -364,6 +397,7 @@ function SystemRow({
   setDragOver: React.Dispatch<React.SetStateAction<string | null>>;
   onClick: () => void;
   onDropThread?: () => void;
+  onContextMenu?: (event: React.MouseEvent) => void;
 }) {
   const takesDrop = drop === "live" && Boolean(onDropThread);
   const { over, onEnter, onLeave, reset } = useDragOver({
@@ -375,6 +409,9 @@ function SystemRow({
     <button
       type="button"
       aria-current={active ? "true" : undefined}
+      // In two columns a long name is clipped — "Uønsket post" is the one —
+      // so the whole of it is a hover away.
+      title={label}
       className={cn(
         // py-1, and no gap between them: the four are one block naming the
         // four places every mailbox has, and spaced like separate things
@@ -396,6 +433,7 @@ function SystemRow({
         over && takesDrop && "bg-teal-500 text-white"
       )}
       onClick={onClick}
+      onContextMenu={onContextMenu}
       onDragOver={(e) => {
         if (!takesDrop) return;
         e.preventDefault();
@@ -920,13 +958,25 @@ function FolderRow({
   );
 }
 
+/** One row of a rail menu, and the icon in front of it. */
+const menuItemClass =
+  "flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-stone-800 hover:bg-stone-100";
+const menuIconClass = "h-3.5 w-3.5 shrink-0 text-stone-400";
+
 /**
- * The right-click menu on a folder.
+ * The right-click menu on a folder, and on the mailbox above them.
  *
- * One item for now. It is a menu rather than a button on the row because
- * the row is already carrying a triangle, a star and a count, and the
- * things you do to a folder — as against the things you do with it — are
- * rare enough to be worth a second click.
+ * It is a menu rather than buttons on the row because the row is already
+ * carrying a triangle, a star and a count, and the things you do to a folder
+ * — as against the things you do with it — are rare enough to be worth a
+ * second click. The mailbox heading is the same case: a plus that appeared
+ * under the pointer was a control on a row that is otherwise only a name.
+ *
+ * Every action is optional, and only the ones given are drawn. A mailbox can
+ * be given one folder to make, where a folder is given all four. Given a
+ * `note` instead, it says one thing and offers nothing: Sent, Drafts, Trash
+ * and Junk are the provider's own, and a right-click that opened nothing at
+ * all reads as a right-click that missed.
  *
  * Placed at the pointer and clamped to the window, so a folder near the
  * bottom of a long rail does not open its menu off the end of the screen.
@@ -934,6 +984,8 @@ function FolderRow({
 function FolderContextMenu({
   x,
   y,
+  note,
+  onNewFolder,
   onRename,
   onNewSubfolder,
   onMove,
@@ -942,12 +994,16 @@ function FolderContextMenu({
 }: {
   x: number;
   y: number;
-  onRename: () => void;
-  onNewSubfolder: () => void;
-  onMove: () => void;
-  onDelete: () => void;
+  /** A line that answers instead of acting. Drawn on its own. */
+  note?: string;
+  onNewFolder?: () => void;
+  onRename?: () => void;
+  onNewSubfolder?: () => void;
+  onMove?: () => void;
+  onDelete?: () => void;
   onDismiss: () => void;
 }) {
+  const t = useMailT();
   const ref = React.useRef<HTMLDivElement>(null);
   const [placed, setPlaced] = React.useState({ left: x, top: y });
 
@@ -994,49 +1050,66 @@ function FolderContextMenu({
          an inch of nothing to the right of it. */
       className="mail-light-surface fixed z-50 w-max rounded-lg border border-stone-200 bg-white py-1 shadow-lg"
     >
-      <button
-        type="button"
-        role="menuitem"
-        autoFocus
-        className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-stone-800 hover:bg-stone-100"
-        onClick={onRename}
-      >
-        <Pencil className="h-3.5 w-3.5 shrink-0 text-stone-400" aria-hidden />
-        Rename folder
-      </button>
-      <button
-        type="button"
-        role="menuitem"
-        className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-stone-800 hover:bg-stone-100"
-        onClick={onNewSubfolder}
-      >
-        <FolderPlus
-          className="h-3.5 w-3.5 shrink-0 text-stone-400"
-          aria-hidden
-        />
-        New subfolder…
-      </button>
-      <button
-        type="button"
-        role="menuitem"
-        className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-stone-800 hover:bg-stone-100"
-        onClick={onMove}
-      >
-        <FolderInput
-          className="h-3.5 w-3.5 shrink-0 text-stone-400"
-          aria-hidden
-        />
-        Move folder…
-      </button>
-      <button
-        type="button"
-        role="menuitem"
-        className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-red-700 hover:bg-red-50"
-        onClick={onDelete}
-      >
-        <Trash2 className="h-3.5 w-3.5 shrink-0 text-red-400" aria-hidden />
-        Delete folder…
-      </button>
+      {note ? (
+        <p className="px-3 py-1.5 text-sm text-stone-500">{note}</p>
+      ) : null}
+      {onNewFolder ? (
+        <button
+          type="button"
+          role="menuitem"
+          autoFocus
+          className={menuItemClass}
+          onClick={onNewFolder}
+        >
+          <FolderPlus className={menuIconClass} aria-hidden />
+          {t("newFolder")}
+        </button>
+      ) : null}
+      {onRename ? (
+        <button
+          type="button"
+          role="menuitem"
+          autoFocus
+          className={menuItemClass}
+          onClick={onRename}
+        >
+          <Pencil className={menuIconClass} aria-hidden />
+          {t("renameFolder")}
+        </button>
+      ) : null}
+      {onNewSubfolder ? (
+        <button
+          type="button"
+          role="menuitem"
+          className={menuItemClass}
+          onClick={onNewSubfolder}
+        >
+          <FolderPlus className={menuIconClass} aria-hidden />
+          {t("newSubfolder")}
+        </button>
+      ) : null}
+      {onMove ? (
+        <button
+          type="button"
+          role="menuitem"
+          className={menuItemClass}
+          onClick={onMove}
+        >
+          <FolderInput className={menuIconClass} aria-hidden />
+          {t("moveFolder")}
+        </button>
+      ) : null}
+      {onDelete ? (
+        <button
+          type="button"
+          role="menuitem"
+          className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-red-700 hover:bg-red-50"
+          onClick={onDelete}
+        >
+          <Trash2 className="h-3.5 w-3.5 shrink-0 text-red-400" aria-hidden />
+          {t("deleteFolder")}
+        </button>
+      ) : null}
     </div>
   );
 }
@@ -1065,6 +1138,7 @@ function FolderDeleteConfirm({
   onConfirm: () => void;
   onDismiss: () => void;
 }) {
+  const t = useMailT();
   const ref = React.useRef<HTMLDivElement>(null);
   const [placed, setPlaced] = React.useState({ left: x, top: y });
 
@@ -1098,15 +1172,15 @@ function FolderDeleteConfirm({
     <div
       ref={ref}
       role="dialog"
-      aria-label={`Delete ${label}`}
+      aria-label={t("deleteFolderTitle", { label })}
       style={{ left: placed.left, top: placed.top }}
       className="mail-light-surface fixed z-50 w-64 rounded-xl border border-stone-200 bg-white p-3 shadow-lg"
     >
-      <p className="text-sm font-semibold text-stone-800">Delete {label}?</p>
+      <p className="text-sm font-semibold text-stone-800">
+        {t("deleteFolderAsk", { label })}
+      </p>
       <p className="pt-1 text-xs leading-snug text-stone-500">
-        {onOutlook
-          ? "The folder goes to Deleted Items, and everything filed in it goes with it."
-          : "The label comes off. Every conversation in it stays where it is, in All Mail."}
+        {t(onOutlook ? "deleteFolderOutlook" : "deleteFolderGmail")}
       </p>
       <div className="flex justify-end gap-2 pt-3">
         <button
@@ -1114,7 +1188,7 @@ function FolderDeleteConfirm({
           className="rounded-lg px-2.5 py-1 text-sm font-semibold text-stone-600 hover:bg-stone-100"
           onClick={onDismiss}
         >
-          Keep
+          {t("keep")}
         </button>
         <button
           type="button"
@@ -1123,7 +1197,7 @@ function FolderDeleteConfirm({
           className="rounded-lg bg-red-600 px-2.5 py-1 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-60"
           onClick={onConfirm}
         >
-          {busy ? "Deleting…" : "Delete"}
+          {busy ? t("deleting") : t("delete")}
         </button>
       </div>
     </div>
@@ -1159,6 +1233,7 @@ function FolderMovePicker({
   onMove: (targetName: string | null) => void;
   onDismiss: () => void;
 }) {
+  const t = useMailT();
   const ref = React.useRef<HTMLDivElement>(null);
   const [query, setQuery] = React.useState("");
   const [highlight, setHighlight] = React.useState(0);
@@ -1230,19 +1305,21 @@ function FolderMovePicker({
     <div
       ref={ref}
       role="dialog"
-      aria-label={`Move ${moving.label}`}
+      aria-label={t("moveFolderTitle", { label: moving.label })}
       style={{ left: placed.left, top: placed.top }}
       className="mail-light-surface fixed z-50 flex max-h-[22rem] w-72 flex-col rounded-xl border border-stone-200 bg-white p-2 shadow-lg"
     >
       <p className="shrink-0 px-1 pb-2 text-sm text-stone-700">
-        Move <span className="font-semibold">{moving.label}</span> to…
+        {t("moveFolderToBefore")}
+        <span className="font-semibold">{moving.label}</span>
+        {t("moveFolderToAfter")}
       </p>
       <input
         autoFocus
         value={query}
         onChange={(e) => setQuery(e.target.value)}
-        placeholder="Filter folders…"
-        aria-label="Filter folders"
+        placeholder={t("filterFoldersPlaceholder")}
+        aria-label={t("filterFolders")}
         className="mb-1 w-full shrink-0 rounded-md border border-stone-200 bg-white px-2 py-1.5 text-sm outline-none placeholder:text-stone-400 focus:border-stone-300"
         onKeyDown={(e) => {
           if (e.key === "ArrowDown") {
@@ -1263,7 +1340,7 @@ function FolderMovePicker({
       <div className="min-h-0 flex-1 overflow-y-auto">
         {!atTop && !query.trim() ? (
           <MoveRow
-            label="Top level"
+            label={t("topLevel")}
             note={null}
             depth={0}
             icon={Home}
@@ -1273,8 +1350,8 @@ function FolderMovePicker({
         ) : null}
         {atTop && !query.trim() ? (
           <MoveRow
-            label="Top level"
-            note="where it is now"
+            label={t("topLevel")}
+            note={t("whereItIsNow")}
             depth={0}
             icon={Home}
             highlighted={false}
@@ -1288,7 +1365,7 @@ function FolderMovePicker({
             <MoveRow
               key={node.name}
               label={node.label}
-              note={isParent ? "where it is now" : null}
+              note={isParent ? t("whereItIsNow") : null}
               depth={depth}
               icon={Folder}
               highlighted={pickable && choices[highlight] === node.name}
@@ -1298,7 +1375,7 @@ function FolderMovePicker({
         })}
         {options.length === 0 ? (
           <p className="px-2 py-3 text-center text-xs text-stone-400">
-            No folder by that name
+            {t("noFolderByThatName")}
           </p>
         ) : null}
       </div>
@@ -1389,6 +1466,7 @@ export function MailFolderRail({
   onOpenTrash,
   onOpenJunk,
   onCreateFolder,
+  onReorderAccount,
   onRenameFolder,
   onDeleteFolder,
   draggingAccount,
@@ -1398,6 +1476,7 @@ export function MailFolderRail({
   onClose,
   side = "left",
 }: FolderRailProps) {
+  const t = useMailT();
   const railRef = React.useRef<HTMLElement>(null);
   const [query, setQuery] = React.useState("");
   const [collapsed, setCollapsedState] = React.useState<Set<string>>(
@@ -1413,6 +1492,17 @@ export function MailFolderRail({
     Set<string>
   >(() => new Set());
   const [creatingFor, setCreatingFor] = React.useState<string | null>(null);
+  /**
+   * The mailbox a folder is being made on, while the provider makes it.
+   *
+   * Its own state, and not `creatingFor` and `saving` together, because the
+   * name box does not survive the wait: it is disabled the moment the work
+   * starts, a disabled field cannot hold focus, and the blur that follows is
+   * the one that closes the box. So by the time there was anything to wait
+   * for, `creatingFor` was already null and the spinner had nothing to hang
+   * from.
+   */
+  const [creatingIn, setCreatingIn] = React.useState<string | null>(null);
   /**
    * A folder being made inside another, by mailbox and parent name.
    *
@@ -1433,6 +1523,17 @@ export function MailFolderRail({
    */
   const [menu, setMenu] = React.useState<{
     node: FolderTreeNode;
+    x: number;
+    y: number;
+  } | null>(null);
+  /** The mailbox heading that was right-clicked, and where. */
+  const [accountMenu, setAccountMenu] = React.useState<{
+    account: string;
+    x: number;
+    y: number;
+  } | null>(null);
+  /** Where a right-click landed on Sent, Drafts, Trash, or Junk. */
+  const [fixedMenu, setFixedMenu] = React.useState<{
     x: number;
     y: number;
   } | null>(null);
@@ -1525,6 +1626,8 @@ export function MailFolderRail({
    * pointer would be the app taking the view away for no reason.
    */
   const [revealed, setRevealed] = React.useState<string | null>(null);
+  /** The reveal the rail has already scrolled to, so it goes there once. */
+  const scrolledToRef = React.useRef<string | null>(null);
 
   /**
    * The one row a dropped conversation would land on.
@@ -1536,6 +1639,38 @@ export function MailFolderRail({
 
   /** The folder in the air, while one is. */
   const [folderDrag, setFolderDrag] = React.useState<FolderDrag | null>(null);
+  /** The mailbox heading being dragged. */
+  const [accountDrag, setAccountDrag] = React.useState<string | null>(null);
+  /**
+   * Wide enough for the four views to stand two abreast.
+   *
+   * Measured, because the rail is dragged to whatever width its reader wants
+   * and a media query only knows about the window. The number is what two
+   * columns need: 6.5rem each and the gap between them.
+   */
+  const [systemTwoUp, setSystemTwoUp] = React.useState(false);
+  React.useEffect(() => {
+    const rail = railRef.current;
+    if (!rail || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(([entry]) => {
+      setSystemTwoUp(entry.contentRect.width >= SYSTEM_TWO_UP_WIDTH);
+    });
+    observer.observe(rail);
+    return () => observer.disconnect();
+  }, []);
+
+  /** The last mailbox section, so the empty rail under it knows it is under. */
+  const lastSectionRef = React.useRef<HTMLDivElement | null>(null);
+  /**
+   * Where it would land: in front of this mailbox, or at the end.
+   *
+   * A place between two headings rather than a heading — a mailbox has no
+   * inside, so there is nothing to drop one onto. The rail draws it as a
+   * line, which is the only honest picture of "it goes here".
+   */
+  const [accountDropBefore, setAccountDropBefore] = React.useState<
+    string | null | undefined
+  >(undefined);
   /**
    * A folder the provider has been asked about and has not answered.
    *
@@ -1592,7 +1727,7 @@ export function MailFolderRail({
           );
         } catch (err) {
           toast.error(
-            err instanceof Error ? err.message : "Couldn't move the folder"
+            err instanceof Error ? err.message : t("couldNotMoveFolder")
           );
         }
       });
@@ -1615,7 +1750,7 @@ export function MailFolderRail({
           await onRenameFolder(drag.account, drag.name, drag.label);
         } catch (err) {
           toast.error(
-            err instanceof Error ? err.message : "Couldn't move the folder"
+            err instanceof Error ? err.message : t("couldNotMoveFolder")
           );
         }
       });
@@ -1641,27 +1776,67 @@ export function MailFolderRail({
     [openAccount]
   );
 
-  /** Once it is on screen: scroll to it, then stop pointing after a beat. */
+  /** Stop pointing at it after a beat. */
   React.useEffect(() => {
-    if (!revealed) return;
-    // After the render that opened its parents, or the row is not there yet.
-    const raf = requestAnimationFrame(() => {
-      const row = railRef.current?.querySelector<HTMLElement>(
-        `[data-folder-row="${CSS.escape(revealed)}"]`
-      );
-      row?.scrollIntoView({
-        block: "center",
-        behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches
-          ? "auto"
-          : "smooth",
-      });
-    });
+    if (!revealed) {
+      scrolledToRef.current = null;
+      return;
+    }
     const timer = window.setTimeout(() => setRevealed(null), REVEAL_MS);
-    return () => {
-      cancelAnimationFrame(raf);
-      window.clearTimeout(timer);
-    };
+    return () => window.clearTimeout(timer);
   }, [revealed]);
+
+  /**
+   * Once it is on screen, scroll to it. Once, and not before it is there.
+   *
+   * A folder just made is not in the rail when the reveal is asked for: the
+   * provider answers, the whole list is read back, and the row arrives a
+   * render or two later. Looking for it on the next frame found nothing and
+   * gave up — which is why a new folder was ringed where it stood and never
+   * scrolled to.
+   *
+   * So this looks after every render while a reveal is pending, and takes
+   * the rail there the first time the row exists.
+   */
+  React.useEffect(() => {
+    if (!revealed || scrolledToRef.current === revealed) return;
+    /*
+      Read back and compared here, rather than asked for in a selector.
+
+      The key joins the mailbox to the folder with a NUL, which is the one
+      character `CSS.escape` cannot carry: the rules say to write it as the
+      replacement character instead, so the selector asked for a key with a
+      U+FFFD in it and no row ever had one. The ring showed, because that is
+      a comparison in JavaScript, and the rail never moved.
+    */
+    const rows = railRef.current?.querySelectorAll<HTMLElement>(
+      "[data-folder-row]"
+    );
+    const row = rows
+      ? Array.from(rows).find((el) => el.dataset.folderRow === revealed)
+      : undefined;
+    if (!row) return;
+    scrolledToRef.current = revealed;
+    const gently = !window.matchMedia("(prefers-reduced-motion: reduce)")
+      .matches;
+    row.scrollIntoView({ block: "center", behavior: gently ? "smooth" : "auto" });
+    if (!gently) return;
+    /*
+      And again, without the animation, if the animation did nothing.
+
+      A smooth scroll is a request the engine may decline — this webview
+      declines it — and a reveal that does not move is no reveal at all: the
+      folder ends up ringed somewhere off the bottom of the rail, which is
+      the very thing the scroll is for. So the scroller is read a beat later,
+      and if it has not moved the rail is simply put there.
+    */
+    const scroller = scrollingAncestor(row);
+    const before = scroller?.scrollTop;
+    window.setTimeout(() => {
+      if (!scroller || scroller.scrollTop !== before) return;
+      row.scrollIntoView({ block: "center", behavior: "auto" });
+    }, 150);
+  });
 
   const openCollapsed = React.useCallback(
     (account: string, name: string) => {
@@ -1707,6 +1882,50 @@ export function MailFolderRail({
       })),
     [trees, query]
   );
+
+  /** The mailboxes as the rail lists them, which is the order being changed. */
+  const railAccounts = React.useMemo(
+    () => filtered.map((section) => section.account),
+    [filtered]
+  );
+
+  /**
+   * Where a drop would put the dragged mailbox, if it can go there at all.
+   *
+   * The place is read off the pointer: the top half of a section means in
+   * front of it, the bottom half means behind it — which is the same as in
+   * front of the next one down. Any place is a place: the order is the
+   * reader's own arrangement, so a mailbox may sit anywhere among the others,
+   * whichever provider each of them came from.
+   */
+  const dropPlaceFor = React.useCallback(
+    (account: string, event: React.DragEvent): string | null | undefined => {
+      if (!accountDrag) return undefined;
+      const box = event.currentTarget.getBoundingClientRect();
+      const above = event.clientY < box.top + box.height / 2;
+      const index = railAccounts.indexOf(account);
+      if (index < 0) return undefined;
+      const before = above
+        ? account
+        : (railAccounts[index + 1] ?? null);
+      if (before !== null && before === accountDrag) return undefined;
+      const next = moveAccountBefore(railAccounts, accountDrag, before);
+      // A place that changes nothing is not a place to drop: the line would
+      // promise a move and the drop would make none. The mailbox already
+      // behind the pointer is the common case.
+      if (next.join(">") === railAccounts.join(">")) return undefined;
+      return before;
+    },
+    [accountDrag, railAccounts]
+  );
+
+  /** The same question for the empty rail under the last mailbox. */
+  const dropPlaceAtEnd = React.useCallback((): string | null | undefined => {
+    if (!accountDrag) return undefined;
+    const next = moveAccountBefore(railAccounts, accountDrag, null);
+    if (next.join(">") === railAccounts.join(">")) return undefined;
+    return null;
+  }, [accountDrag, railAccounts]);
 
   const favouriteKeys = React.useMemo(
     () =>
@@ -1783,7 +2002,7 @@ export function MailFolderRail({
           await onRenameFolder(node.account, node.name, `${parent}${label}`);
         } catch (err) {
           toast.error(
-            err instanceof Error ? err.message : "Couldn't rename the folder"
+            err instanceof Error ? err.message : t("couldNotRenameFolder")
           );
         }
       });
@@ -1800,7 +2019,7 @@ export function MailFolderRail({
       setConfirmDelete(null);
     } catch (err) {
       toast.error(
-        err instanceof Error ? err.message : "Couldn't delete the folder"
+        err instanceof Error ? err.message : t("couldNotDeleteFolder")
       );
     } finally {
       setDeleting(false);
@@ -1819,31 +2038,56 @@ export function MailFolderRail({
     const target = creatingUnder;
     const label = newName.trim().replace(/\//g, " ");
     if (!target || !label || saving) return;
+    const name = `${target.parent}/${label}`;
     setSaving(true);
-    try {
-      await onCreateFolder(target.account, `${target.parent}/${label}`);
-      setCreatingUnder(null);
-      setNewName("");
-    } catch (err) {
-      toast.error(
-        err instanceof Error ? err.message : "Couldn't make the folder"
-      );
-    } finally {
-      setSaving(false);
-    }
+    // The parent carries the wait, the way it carries a move or a rename.
+    await whileBusy(target.account, target.parent, async () => {
+      try {
+        await onCreateFolder(target.account, name);
+        setCreatingUnder(null);
+        setNewName("");
+        // A folder lands in the order the provider keeps, which on a long
+        // rail is nowhere near where it was asked for.
+        revealFolder(target.account, name);
+      } catch (err) {
+        toast.error(
+          err instanceof Error ? err.message : t("couldNotMakeFolder")
+        );
+      }
+    });
+    setSaving(false);
   };
 
   const submitNewFolder = async (account: string) => {
     const name = newName.trim();
     if (!name || saving) return;
     setSaving(true);
+    setCreatingIn(account);
     try {
       await onCreateFolder(account, name);
       setCreatingFor(null);
       setNewName("");
+      revealFolder(account, name);
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : t("couldNotMakeFolder")
+      );
     } finally {
       setSaving(false);
+      setCreatingIn(null);
     }
+  };
+
+  /**
+   * The four rows above the mailboxes answer a right-click, but have nothing
+   * to offer: the provider owns them, so they cannot be renamed, moved, or
+   * deleted. Saying so beats a menu that never opens.
+   */
+  const openFixedMenu = (event: React.MouseEvent) => {
+    event.preventDefault();
+    setMenu(null);
+    setAccountMenu(null);
+    setFixedMenu({ x: event.clientX, y: event.clientY });
   };
 
   const renderNodes = (nodes: FolderTreeNode[], account: string, depth = 0) =>
@@ -1885,6 +2129,8 @@ export function MailFolderRail({
               // one nobody made, or a row standing for a search.
               if (node.implied || node.virtual) return;
               event.preventDefault();
+              setAccountMenu(null);
+              setFixedMenu(null);
               setMenu({ node, x: event.clientX, y: event.clientY });
             }}
             onRenameSubmit={(next) => void submitRename(node, next)}
@@ -1903,7 +2149,7 @@ export function MailFolderRail({
               autoFocus
               value={newName}
               disabled={saving}
-              placeholder="Folder name"
+              placeholder={t("newFolderName")}
               aria-label={`New folder inside ${node.label}`}
               className="mb-1 mt-0.5 w-full rounded-md border border-teal-500 bg-white px-2 py-1 text-sm outline-none"
               // Where the folder will be: one step in from its parent, in
@@ -1929,10 +2175,64 @@ export function MailFolderRail({
       );
     });
 
+  const sentRow = (
+    <SystemRow
+      icon={Send}
+      label={t("viewSent")}
+      active={systemView === "sent"}
+      // You never file into Sent or Drafts. Dimmed mid-drag so the rule
+      // is visible before the drop rather than after it.
+      drop={dragging ? "dim" : "rest"}
+      dragOver={dragOver}
+      setDragOver={setDragOver}
+      onClick={onOpenSent}
+      onContextMenu={openFixedMenu}
+    />
+  );
+  const draftsRow = (
+    <SystemRow
+      icon={FilePen}
+      label={t("viewDrafts")}
+      count={draftCount}
+      active={systemView === "drafts"}
+      drop={dragging ? "dim" : "rest"}
+      dragOver={dragOver}
+      setDragOver={setDragOver}
+      onClick={onOpenDrafts}
+      onContextMenu={openFixedMenu}
+    />
+  );
+  const trashRow = (
+    <SystemRow
+      icon={Trash2}
+      label={t("viewTrash")}
+      active={systemView === "trash"}
+      drop={dragging ? "live" : "rest"}
+      dragOver={dragOver}
+      setDragOver={setDragOver}
+      onClick={onOpenTrash}
+      onContextMenu={openFixedMenu}
+      onDropThread={() => void onDropTrash()}
+    />
+  );
+  const junkRow = (
+    <SystemRow
+      icon={ShieldAlert}
+      label={t("viewJunk")}
+      active={systemView === "junk"}
+      drop={dragging ? "live" : "rest"}
+      dragOver={dragOver}
+      setDragOver={setDragOver}
+      onClick={onOpenJunk}
+      onContextMenu={openFixedMenu}
+      onDropThread={() => void onDropJunk()}
+    />
+  );
+
   return (
     <aside
       ref={railRef}
-      aria-label="Folders"
+      aria-label={t("folders")}
       /**
        * The head stays; the mailboxes scroll under it.
        *
@@ -1953,7 +2253,7 @@ export function MailFolderRail({
           closes. */}
       <div className="flex shrink-0 items-center gap-1 pl-2">
         <p className="min-w-0 flex-1 truncate text-[11px] font-semibold uppercase tracking-wide text-[var(--mail-chrome-muted)]">
-          Folders
+          {t("folders")}
         </p>
         {/* No right padding, and four above and below.
             A number is ink to the edge of its box; this glyph is not — the
@@ -1964,8 +2264,8 @@ export function MailFolderRail({
             it sits in its corner rather than against one edge of it. */}
         <button
           type="button"
-          title="Hide folders"
-          aria-label="Hide folders"
+          title={t("hideFolders")}
+          aria-label={t("hideFolders")}
           onClick={onClose}
           className={cn(
             "shrink-0 rounded py-1 pl-1 pr-0 text-[var(--mail-chrome-muted)] hover:bg-[var(--mail-chrome-hover)] hover:text-[var(--mail-chrome-fg)]",
@@ -1982,52 +2282,42 @@ export function MailFolderRail({
         </button>
       </div>
 
-      {/* The four views. One set, across every mailbox — there is no
-          per-account Trash to keep, and never was. */}
-      <div className="shrink-0">
-        <SystemRow
-          icon={Send}
-          label="Sent"
-          active={systemView === "sent"}
-          // You never file into Sent or Drafts. Dimmed mid-drag so the rule
-          // is visible before the drop rather than after it.
-          drop={dragging ? "dim" : "rest"}
-          dragOver={dragOver}
-          setDragOver={setDragOver}
-          onClick={onOpenSent}
-        />
-        <SystemRow
-          icon={FilePen}
-          label="Drafts"
-          count={draftCount}
-          active={systemView === "drafts"}
-          drop={dragging ? "dim" : "rest"}
-          dragOver={dragOver}
-          setDragOver={setDragOver}
-          onClick={onOpenDrafts}
-        />
-        {/* Trash and Junk stay live. Dragging to delete and dragging to mark
-            as junk are real habits, and both are moves like any other. */}
-        <SystemRow
-          icon={Trash2}
-          label="Trash"
-          active={systemView === "trash"}
-          drop={dragging ? "live" : "rest"}
-          dragOver={dragOver}
-          setDragOver={setDragOver}
-          onClick={onOpenTrash}
-          onDropThread={() => void onDropTrash()}
-        />
-        <SystemRow
-          icon={ShieldAlert}
-          label="Junk"
-          active={systemView === "junk"}
-          drop={dragging ? "live" : "rest"}
-          dragOver={dragOver}
-          setDragOver={setDragOver}
-          onClick={onOpenJunk}
-          onDropThread={() => void onDropJunk()}
-        />
+      {/*
+        The four views. One set, across every mailbox — there is no
+        per-account Trash to keep, and never was.
+
+        Two columns when two will fit, and one when they will not. Four rows
+        of one word each, stacked, take a fifth of a rail that has folders to
+        show; side by side they take half of that.
+
+        The order changes with the shape, which is why the width is measured
+        rather than left to the grid. Stacked, they run in the order they are
+        spoken about: Sent, Drafts, Trash, Junk. Two abreast, the pair you
+        empty stands on the left and the pair you write from on the right —
+        so the grid is dealt Trash, Sent, Junk, Drafts, and reads down as
+        Trash/Junk and Sent/Drafts.
+      */}
+      <div
+        className={cn(
+          "grid shrink-0 gap-x-2",
+          systemTwoUp ? "grid-cols-2" : "grid-cols-1"
+        )}
+      >
+        {systemTwoUp ? (
+          <>
+            {trashRow}
+            {sentRow}
+            {junkRow}
+            {draftsRow}
+          </>
+        ) : (
+          <>
+            {sentRow}
+            {draftsRow}
+            {trashRow}
+            {junkRow}
+          </>
+        )}
       </div>
 
       {favouriteRows.length ? (
@@ -2038,7 +2328,7 @@ export function MailFolderRail({
         <div className="mt-3 flex max-h-[35%] shrink-0 flex-col">
           <p className="flex shrink-0 items-center gap-1 px-2 pb-1 text-[11px] font-semibold uppercase tracking-wide text-[var(--mail-chrome-muted)]">
             <HeartIcon className="h-3 w-3" filled />
-            Favourites
+            {t("favourites")}
           </p>
           <div className="min-h-0 overflow-y-auto">
           {favouriteRows.map((node) => (
@@ -2088,8 +2378,8 @@ export function MailFolderRail({
         <input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="Filter folders…"
-          aria-label="Filter folders"
+          placeholder={t("filterFoldersPlaceholder")}
+          aria-label={t("filterFolders")}
           className="w-full rounded-md border border-stone-200 bg-white px-2 py-1.5 text-sm outline-none placeholder:text-stone-400 focus:border-stone-300"
           onKeyDown={(e) => {
             if (e.key === "Escape") {
@@ -2100,13 +2390,52 @@ export function MailFolderRail({
         />
       </div>
 
-      <div className="mt-2 min-h-0 flex-1 space-y-1 overflow-y-auto pb-2">
+      <div
+        className="mt-2 min-h-0 flex-1 space-y-1 overflow-y-auto pb-2"
+        /*
+          The floor of the rail.
+
+          A mailbox headed for the end of the list is dragged past the last
+          folder of the last mailbox, and everything under the pointer from
+          there down is empty rail — a hand's width of it on a short list.
+          It used to answer nothing, so the drop had to be aimed at the last
+          few pixels of the last section, and anywhere below that the
+          mailbox sprang back.
+
+          Under the last section means the end of the list, however far
+          under. Above it, the section the pointer is over has answered
+          already, and this leaves it alone.
+        */
+        onDragOver={(e) => {
+          if (!accountDrag) return;
+          const floor = lastSectionRef.current?.getBoundingClientRect().bottom;
+          if (floor === undefined || e.clientY <= floor) return;
+          const place = dropPlaceAtEnd();
+          if (place === undefined) return;
+          e.preventDefault();
+          e.dataTransfer.dropEffect = "move";
+          setAccountDropBefore(place);
+        }}
+        onDrop={(e) => {
+          if (!accountDrag) return;
+          const floor = lastSectionRef.current?.getBoundingClientRect().bottom;
+          if (floor === undefined || e.clientY <= floor) return;
+          const place = dropPlaceAtEnd();
+          if (place === undefined) return;
+          e.preventDefault();
+          e.stopPropagation();
+          const moved = accountDrag;
+          setAccountDrag(null);
+          setAccountDropBefore(undefined);
+          void onReorderAccount?.(moved, place);
+        }}
+      >
         {loading && !accountFolders.length ? (
           <p className="px-2 py-4 text-center text-xs text-stone-400">
-            Loading folders…
+            {t("loadingFolders")}
           </p>
         ) : null}
-        {filtered.map(({ account, nodes }) => {
+        {filtered.map(({ account, nodes }, sectionIndex) => {
           const state = dropStateFor(account);
           /**
            * While a conversation is in the air, only its own mailbox is
@@ -2136,13 +2465,90 @@ export function MailFolderRail({
             ? state !== "live"
             : !query.trim() &&
               collapsedAccounts.has(collapsedAccountKey(account));
+          const dropAbove = accountDrag !== null && accountDropBefore === account;
+          /* Last in the rail, and the drop is "after everything". */
+          const dropAtEnd =
+            accountDrag !== null &&
+            accountDropBefore === null &&
+            railAccounts[railAccounts.length - 1] === account;
           return (
-            <div key={account}>
+            <div
+              key={account}
+              ref={
+                sectionIndex === filtered.length - 1 ? lastSectionRef : undefined
+              }
+              className="relative"
+              /*
+                The whole section, not the heading strip.
+
+                A heading is about twenty pixels tall, and half of it is the
+                only half that means anything — the top half puts a mailbox
+                in front of this one, the bottom half behind it. Dragging
+                downwards you enter a heading at its top, so with the strip
+                as the target the useful half was the one you had already
+                passed, and a drop a moment too early did nothing at all.
+
+                The section is the heading and its folders together, which
+                is a target the size of what it names.
+              */
+              onDragOver={(e) => {
+                if (!accountDrag) return;
+                const place = dropPlaceFor(account, e);
+                if (place === undefined) return;
+                e.preventDefault();
+                e.dataTransfer.dropEffect = "move";
+                setAccountDropBefore(place);
+              }}
+              onDrop={(e) => {
+                if (!accountDrag) return;
+                const place = dropPlaceFor(account, e);
+                if (place === undefined) return;
+                e.preventDefault();
+                e.stopPropagation();
+                const moved = accountDrag;
+                setAccountDrag(null);
+                setAccountDropBefore(undefined);
+                void onReorderAccount?.(moved, place);
+              }}
+            >
+              {/* Where it would land. A line between two headings, because
+                  that is what the move is: a place in a list, not a thing to
+                  be dropped onto. */}
+              {dropAbove ? (
+                <span
+                  aria-hidden
+                  /* Half the gap above the heading, so the line reads as
+                     the space between two mailboxes rather than as a rule
+                     over the name below it. */
+                  className="pointer-events-none absolute inset-x-1 -top-[5px] z-10 h-0.5 rounded-full bg-teal-500"
+                />
+              ) : null}
+              {dropAtEnd ? (
+                <span
+                  aria-hidden
+                  className="pointer-events-none absolute inset-x-1 -bottom-[3px] z-10 h-0.5 rounded-full bg-teal-500"
+                />
+              ) : null}
               <div
                 className={cn(
-                  "group/head flex items-center gap-1 pr-2 pb-1",
+                  "flex items-center gap-1 pr-2 pb-1",
                   state === "dim" && "opacity-40"
                 )}
+                /* Making a folder is the only thing there is to do to a
+                   mailbox from here, and it is rare — so it waits behind a
+                   right-click, the way everything you do to a folder does,
+                   rather than appearing under the pointer on a row that is
+                   otherwise just a name. */
+                onContextMenu={(event) => {
+                  event.preventDefault();
+                  setMenu(null);
+                  setFixedMenu(null);
+                  setAccountMenu({
+                    account,
+                    x: event.clientX,
+                    y: event.clientY,
+                  });
+                }}
               >
                 {/* The whole heading turns the mailbox, rather than the
                     triangle alone. A folder row has two jobs — open it, or
@@ -2153,11 +2559,58 @@ export function MailFolderRail({
                   type="button"
                   aria-expanded={!accountShut}
                   title={account}
-                  // Dropping a folder on its mailbox takes it out of
-                  // whatever holds it. Without somewhere to mean "the top",
-                  // a folder dragged into another could never come back
-                  // out — the rail would nest and never unnest.
+                  /* The heading is the mailbox, so the heading is what you
+                     pick up to move it. Only when nothing else is in the
+                     air: a rail that answers two drags at once answers
+                     neither. */
+                  draggable={Boolean(onReorderAccount) && !dragging && !folderDrag}
+                  /*
+                    The two properties this webview actually reads, set where
+                    they survive — `select-none` above compiles to the
+                    unprefixed rule alone, and `-webkit-user-drag` cannot be
+                    written as a class at all. The same pair the folder rows
+                    carry; see `FolderRow`.
+                  */
+                  style={{
+                    WebkitUserSelect: "none",
+                    ...(onReorderAccount
+                      ? ({ WebkitUserDrag: "element" } as React.CSSProperties)
+                      : null),
+                  }}
+                  onDragStart={(event) => {
+                    if (!onReorderAccount) return;
+                    event.stopPropagation();
+                    event.dataTransfer.setData(MAIL_ACCOUNT_DRAG_TYPE, account);
+                    // A payload the browser knows, as well as ours: WebKit
+                    // will not begin a drag that carries nothing it can read.
+                    event.dataTransfer.setData(
+                      "text/plain",
+                      `redd-mail-account:${account}`
+                    );
+                    event.dataTransfer.effectAllowed = "move";
+                    setFolderDragImage(event.dataTransfer, account);
+                    // After the handler, not during it. Setting state here
+                    // rebuilds the row under the drag, which cancels it.
+                    setTimeout(() => setAccountDrag(account), 0);
+                  }}
+                  onDragEnd={() => {
+                    clearFolderDragImage();
+                    setAccountDrag(null);
+                    setAccountDropBefore(undefined);
+                  }}
+                  /*
+                    A heading takes two kinds of drop, and they are told
+                    apart by what is in the air.
+
+                    A mailbox lands on it and takes its place. A folder
+                    dropped on it comes out of whatever holds it — without
+                    somewhere to mean "the top", a folder dragged into
+                    another could never come back out, and the rail would
+                    nest and never unnest.
+                  */
                   onDragOver={(e) => {
+                    // An account in the air is the section's to answer.
+                    if (accountDrag) return;
                     if (!folderDrag) return;
                     if (
                       folderDrag.account.toLowerCase() !==
@@ -2170,20 +2623,31 @@ export function MailFolderRail({
                     e.dataTransfer.dropEffect = "move";
                   }}
                   onDrop={(e) => {
+                    if (accountDrag) return;
                     if (!folderDrag) return;
                     e.preventDefault();
                     e.stopPropagation();
                     void dropFolderAtTop(account);
                   }}
                   className={cn(
-                    "flex min-w-0 flex-1 items-center gap-1 rounded-md py-0.5 pl-1 pr-1 text-left",
-                    "hover:bg-[var(--mail-chrome-hover)]"
+                    // select-none, for the same reason a folder row has it:
+                    // a right-click on a name took the name as well as the
+                    // menu, and a pull across the heading swept a highlight
+                    // over it. The mailbox is something to point at, not
+                    // something to copy.
+                    "flex min-w-0 flex-1 select-none items-center gap-1 rounded-md py-0.5 pl-1 pr-1 text-left",
+                    "hover:bg-[var(--mail-chrome-hover)]",
+                    // The one being carried. Where it would land is a line
+                    // between headings, drawn on the section — see below.
+                    accountDrag === account && "opacity-40"
                   )}
                   onClick={() => toggleAccount(account)}
                   onDragEnter={() => {
                     // Same as a folded folder: hovering it mid-drag opens
                     // it, so the mailbox you are filing into need not have
-                    // been left open.
+                    // been left open. A mailbox being dragged is not being
+                    // filed into, so it opens nothing.
+                    if (accountDrag) return;
                     if (state !== "live" || !accountShut) return;
                     if (accountSpringRef.current) {
                       clearTimeout(accountSpringRef.current);
@@ -2232,31 +2696,28 @@ export function MailFolderRail({
                   >
                     {account}
                   </span>
+                  {/*
+                    The mailbox carries the wait for a folder made on it.
+
+                    A provider takes a second or two to make one, and until
+                    now the only word of it was the toast at the end — by
+                    which time the reader had been looking at an unchanged
+                    rail wondering whether the Enter had landed.
+                  */}
+                  {creatingIn === account ? (
+                    <Loader2
+                      className="h-3 w-3 shrink-0 animate-spin text-[var(--mail-chrome-muted)]"
+                      aria-hidden
+                    />
+                  ) : null}
                 </button>
-                {!dragging ? (
-                  <button
-                    type="button"
-                    title={`New folder on ${account}`}
-                    aria-label={`New folder on ${account}`}
-                    className="shrink-0 rounded p-0.5 text-stone-400 opacity-0 hover:text-stone-700 focus-visible:opacity-100 group-hover/head:opacity-100"
-                    onClick={() => {
-                      // Somewhere to put it, and somewhere to see it made.
-                      openAccount(account);
-                      setCreatingUnder(null);
-                      setCreatingFor(account);
-                      setNewName("");
-                    }}
-                  >
-                    <Plus className="h-3.5 w-3.5" />
-                  </button>
-                ) : null}
               </div>
               {accountShut ? null : creatingFor === account ? (
                 <input
                   autoFocus
                   value={newName}
                   disabled={saving}
-                  placeholder="Folder name"
+                  placeholder={t("newFolderName")}
                   aria-label={`New folder name on ${account}`}
                   className="mb-1 w-full rounded-md border border-teal-500 bg-white px-2 py-1 text-sm outline-none"
                   onChange={(e) => setNewName(e.target.value)}
@@ -2285,7 +2746,7 @@ export function MailFolderRail({
                 null
               ) : (
                 <p className="px-2 py-1 text-xs text-stone-400">
-                  {query.trim() ? "No folder by that name" : "No folders yet"}
+                  {query.trim() ? t("noFolderByThatName") : t("noFoldersYet")}
                 </p>
               )}
             </div>
@@ -2325,6 +2786,29 @@ export function MailFolderRail({
           }}
         />
       ) : null}
+      {fixedMenu ? (
+        <FolderContextMenu
+          x={fixedMenu.x}
+          y={fixedMenu.y}
+          note={t("systemFolderFixed")}
+          onDismiss={() => setFixedMenu(null)}
+        />
+      ) : null}
+      {accountMenu ? (
+        <FolderContextMenu
+          x={accountMenu.x}
+          y={accountMenu.y}
+          onDismiss={() => setAccountMenu(null)}
+          onNewFolder={() => {
+            // Somewhere to put it, and somewhere to see it made.
+            openAccount(accountMenu.account);
+            setCreatingUnder(null);
+            setCreatingFor(accountMenu.account);
+            setNewName("");
+            setAccountMenu(null);
+          }}
+        />
+      ) : null}
       {movingFolder ? (
         <FolderMovePicker
           moving={movingFolder.node}
@@ -2352,7 +2836,7 @@ export function MailFolderRail({
                 toast.error(
                   err instanceof Error
                     ? err.message
-                    : "Couldn't move the folder"
+                    : t("couldNotMoveFolder")
                 );
               }
             });

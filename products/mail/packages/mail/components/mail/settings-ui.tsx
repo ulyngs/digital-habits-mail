@@ -18,8 +18,15 @@
  */
 
 import * as React from "react";
-import { X } from "lucide-react";
+import { ChevronsUpDown, X } from "lucide-react";
 
+import {
+  LANGUAGE_FLAG_SVG,
+  LANGUAGE_NATIVE_LABELS,
+  useMailLang,
+  useMailT,
+  type MailLang,
+} from "@/lib/mail/i18n";
 import { cn } from "@/lib/utils";
 
 /** The small capitals over a section. */
@@ -174,6 +181,122 @@ export function SettingsToggle({
         )}
       />
     </button>
+  );
+}
+
+/** A flag, at the size the picker draws them. */
+function LanguageFlag({ lang }: { lang: MailLang }) {
+  return (
+    <span
+      aria-hidden
+      className="block h-3.5 w-5 shrink-0 overflow-hidden rounded-[2px] ring-1 ring-black/10 [&>svg]:block [&>svg]:h-full [&>svg]:w-full"
+      dangerouslySetInnerHTML={{ __html: LANGUAGE_FLAG_SVG[lang] }}
+    />
+  );
+}
+
+/**
+ * The language row, at the top of General.
+ *
+ * The same picker Blocker and To-Do show: the current language on the button,
+ * and a list under it that names what you are on before it offers the others.
+ * Two languages make that list one line long, but the shape stays the same as
+ * the other apps, and a third language drops in without a redesign.
+ */
+export function SettingsLanguageRow() {
+  const t = useMailT();
+  const [lang, setLang] = useMailLang();
+  const [open, setOpen] = React.useState(false);
+  const wrapRef = React.useRef<HTMLDivElement | null>(null);
+  const others = (Object.keys(LANGUAGE_NATIVE_LABELS) as MailLang[]).filter(
+    (option) => option !== lang
+  );
+
+  // A click anywhere else, or Escape, shuts the list. The settings panel is
+  // itself a popover, so this cannot use one of those without nesting them.
+  React.useEffect(() => {
+    if (!open) return;
+    const onPointerDown = (event: PointerEvent) => {
+      if (!wrapRef.current?.contains(event.target as Node)) setOpen(false);
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.stopPropagation();
+        setOpen(false);
+      }
+    };
+    document.addEventListener("pointerdown", onPointerDown, true);
+    document.addEventListener("keydown", onKeyDown, true);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown, true);
+      document.removeEventListener("keydown", onKeyDown, true);
+    };
+  }, [open]);
+
+  return (
+    <SettingsRow
+      label={t("language")}
+      control={
+        <div ref={wrapRef} className="relative">
+          <button
+            type="button"
+            aria-label={t("language")}
+            aria-haspopup="listbox"
+            aria-expanded={open}
+            onClick={() => setOpen((value) => !value)}
+            className={cn(
+              // The theme menu beside it is a native select, so this borrows
+              // its box to keep the two rows on one line of type.
+              "flex cursor-pointer items-center gap-2 rounded-md border border-stone-200 bg-white py-1 pl-2.5 pr-2 text-xs text-stone-700 outline-none hover:bg-stone-50",
+              open && "ring-1 ring-teal-600/40"
+            )}
+          >
+            <LanguageFlag lang={lang} />
+            <span>{LANGUAGE_NATIVE_LABELS[lang]}</span>
+            <ChevronsUpDown className="h-3.5 w-3.5 text-stone-400" aria-hidden />
+          </button>
+          {open ? (
+            <div
+              role="listbox"
+              aria-label={t("language")}
+              className="absolute right-0 top-full z-50 mt-1 w-44 overflow-hidden rounded-lg border border-stone-200 bg-white py-1 shadow-lg"
+            >
+              <p className="px-3 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-stone-400">
+                {t("languagePickerCurrent")}
+              </p>
+              <div
+                role="option"
+                aria-selected
+                className="mx-1 flex items-center gap-2 rounded-md bg-stone-100 px-2 py-1.5 text-sm text-stone-800"
+              >
+                <LanguageFlag lang={lang} />
+                <span>{LANGUAGE_NATIVE_LABELS[lang]}</span>
+              </div>
+              <div className="my-1 h-px bg-stone-200" />
+              <p className="px-3 pb-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-stone-400">
+                {t("languagePickerSwitch")}
+              </p>
+              {others.map((option) => (
+                <button
+                  key={option}
+                  type="button"
+                  role="option"
+                  aria-selected={false}
+                  onClick={() => {
+                    setLang(option);
+                    setOpen(false);
+                  }}
+                  className="mx-1 flex w-[calc(100%-0.5rem)] items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm text-stone-800 hover:bg-stone-100"
+                >
+                  <LanguageFlag lang={option} />
+                  <span>{LANGUAGE_NATIVE_LABELS[option]}</span>
+                </button>
+              ))}
+            </div>
+          ) : null}
+        </div>
+      }
+    />
   );
 }
 

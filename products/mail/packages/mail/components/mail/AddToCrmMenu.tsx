@@ -16,6 +16,7 @@ import { useSpeechDictation } from "@/components/mail/use-speech-dictation";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverTrigger } from "@/components/ui/popover";
 import { MailPopoverContent } from "@/components/mail/MailPopoverContent";
+import { useMailT } from "@/lib/mail/i18n";
 import { mailAddToPeopleActionLabel } from "@/lib/mail/product-flavor";
 import { cn } from "@/lib/utils";
 
@@ -44,6 +45,7 @@ export function AddToCrmMenu({
   /** Run the proposal flow with this hint for the model. */
   onPropose: (hint: string, includeAttachments: boolean) => void;
 }) {
+  const t = useMailT();
   const [open, setOpen] = React.useState(false);
   const [readAttachments, setReadAttachments] = React.useState(false);
   const [targets, setTargets] = React.useState<Set<AddToCrmTarget>>(
@@ -90,8 +92,8 @@ export function AddToCrmMenu({
           type="button"
           variant="ghost"
           size="icon"
-          aria-label={mailAddToPeopleActionLabel()}
-          title={mailAddToPeopleActionLabel()}
+          aria-label={mailAddToPeopleActionLabel(t)}
+          title={mailAddToPeopleActionLabel(t)}
           className={THREAD_ACTION_CLASS}
         >
           <UserPlus />
@@ -99,7 +101,7 @@ export function AddToCrmMenu({
       </PopoverTrigger>
       <MailPopoverContent align="start" className="w-72 p-3">
         <p className="text-xs font-semibold uppercase tracking-[0.12em] text-stone-500">
-          Add to
+          {t("addTo")}
         </p>
         <div className="mt-2 flex flex-col gap-1.5">
           {CRM_TARGETS.map((t) => (
@@ -172,7 +174,7 @@ export function AddToCrmMenu({
         <div className="mt-2 flex items-center justify-end gap-2">
           {dictation.listening ? (
             <span className="mr-auto text-[11px] text-muted-foreground">
-              Listening — click the mic to stop
+              {t("listening")}
             </span>
           ) : null}
           <Button
@@ -182,7 +184,7 @@ export function AddToCrmMenu({
             disabled={!targets.size}
             onClick={submit}
           >
-            Draft
+            {t("draft")}
           </Button>
         </div>
       </MailPopoverContent>

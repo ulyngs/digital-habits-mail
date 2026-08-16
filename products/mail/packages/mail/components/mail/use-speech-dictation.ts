@@ -8,6 +8,7 @@
  */
 
 import * as React from "react";
+import { mailSay } from "@/lib/mail/i18n";
 import { toast } from "sonner";
 
 type BrowserSpeechRecognition = {
@@ -77,7 +78,7 @@ export function useSpeechDictation(
     }
     const Ctor = getSpeechRecognitionCtor();
     if (!Ctor) {
-      toast.error("Dictation isn’t supported in this browser — try Chrome");
+      toast.error(mailSay("dictationUnsupported"));
       return;
     }
     const rec = new Ctor();
@@ -126,7 +127,7 @@ export function useSpeechDictation(
       rec.start();
       setListening(true);
     } catch {
-      toast.error("Couldn't start dictation");
+      toast.error(mailSay("couldNotStartDictation"));
       recognitionRef.current = null;
       setListening(false);
     }

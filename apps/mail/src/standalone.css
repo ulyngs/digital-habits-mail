@@ -36,6 +36,38 @@ html[data-theme="dark"] body {
   app-region: drag;
 }
 
+/* On Windows the window has no system title bar either (see
+   tauri.windows.conf.json). There are no traffic lights on the left, so the
+   row starts at its left edge; the window buttons sit at the right, over the
+   strip (see WindowControls.tsx), so the row stops short of them. `main.tsx`
+   sets the attribute; MailPage reads the variables. */
+html[data-dh-os="windows"] {
+  --mail-titlebar-left: 12px;
+  --mail-titlebar-right: 150px;
+}
+
+/* The search box goes first on Windows, at the left edge of the strip, and
+   the buttons follow it. On a Mac the buttons come first, because the left
+   edge there belongs to the traffic lights and the reader's eye starts to
+   the right of them. Here the row starts at the corner of the window, which
+   is where Windows puts a search box (File Explorer, Settings, the Start
+   menu), so that is what stands there. */
+html[data-dh-os="windows"] .mail-titlebar-search {
+  order: -1;
+}
+
+/* The controls are pulled 4px left to line the first button's label up with
+   the edge. A search box has a border to line up instead. */
+html[data-dh-os="windows"] .mail-titlebar-controls {
+  margin-left: 0;
+}
+
+.dh-window-controls,
+.dh-window-controls button {
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
+
 /* A control inside the strip must still be clickable. */
 .dh-titlebar button,
 .dh-titlebar a,

@@ -16,6 +16,7 @@ import { THREAD_ACTION_CLASS } from "@/components/mail/thread-actions";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverTrigger } from "@/components/ui/popover";
 import { MailPopoverContent } from "@/components/mail/MailPopoverContent";
+import { currentMailLocale, mailSay, useMailT } from "@/lib/mail/i18n";
 import { cn } from "@/lib/utils";
 
 /** One offered time: what it is called, when it is, and the time itself. */
@@ -35,13 +36,13 @@ export function formatSnoozeClock(d: Date): string {
 }
 /** Weekday + clock, e.g. "Thu 08:00". */
 export function formatSnoozeDayTime(d: Date): string {
-  const day = d.toLocaleDateString(undefined, { weekday: "short" });
+  const day = d.toLocaleDateString(currentMailLocale(), { weekday: "short" });
   return `${day} ${formatSnoozeClock(d)}`;
 }
 /** Full commit label, e.g. "Tue 4 Aug, 09:00". */
 function formatSnoozeCommitLabel(d: Date): string {
-  const day = d.toLocaleDateString(undefined, { weekday: "short" });
-  const date = d.toLocaleDateString(undefined, { day: "numeric", month: "short" });
+  const day = d.toLocaleDateString(currentMailLocale(), { weekday: "short" });
+  const date = d.toLocaleDateString(currentMailLocale(), { day: "numeric", month: "short" });
   return `${day} ${date}, ${formatSnoozeClock(d)}`;
 }
 /** Toast / wake label — time only when still today. */
@@ -119,7 +120,7 @@ export function snoozeOptions(): SnoozeOption[] {
   const inOneHour = new Date(now.getTime() + 60 * 60 * 1000);
   options.push({
     id: "1h",
-    label: "In 1 hour",
+    label: mailSay("snoozeInOneHour"),
     detail: formatSnoozeClock(inOneHour),
     iso: inOneHour.toISOString(),
   });
@@ -130,7 +131,7 @@ export function snoozeOptions(): SnoozeOption[] {
   if (laterToday.getTime() > now.getTime()) {
     options.push({
       id: "later",
-      label: "Later today",
+      label: mailSay("snoozeLaterToday"),
       detail: formatSnoozeClock(laterToday),
       iso: laterToday.toISOString(),
     });
@@ -141,7 +142,7 @@ export function snoozeOptions(): SnoozeOption[] {
   tomorrow.setHours(8, 0, 0, 0);
   options.push({
     id: "tomorrow",
-    label: "Tomorrow",
+    label: mailSay("snoozeTomorrow"),
     detail: formatSnoozeDayTime(tomorrow),
     iso: tomorrow.toISOString(),
   });
@@ -154,7 +155,7 @@ export function snoozeOptions(): SnoozeOption[] {
   if (weekend.getTime() <= now.getTime()) weekend.setDate(weekend.getDate() + 7);
   options.push({
     id: "weekend",
-    label: "This weekend",
+    label: mailSay("snoozeThisWeekend"),
     detail: formatSnoozeDayTime(weekend),
     iso: weekend.toISOString(),
   });
@@ -165,7 +166,7 @@ export function snoozeOptions(): SnoozeOption[] {
   nextWeek.setDate(nextWeek.getDate() + (8 - day));
   options.push({
     id: "nextweek",
-    label: "Next week",
+    label: mailSay("snoozeNextWeek"),
     detail: formatSnoozeDayTime(nextWeek),
     iso: nextWeek.toISOString(),
   });
@@ -204,6 +205,7 @@ export function SnoozeMenu({
    */
   title?: string;
 }) {
+  const t = useMailT();
   const [open, setOpen] = React.useState(false);
   // One report for every path that opens or closes the menu — the trigger, the
   // keyboard signal, and each row that commits a time.
@@ -270,7 +272,7 @@ export function SnoozeMenu({
   const options = React.useMemo(() => snoozeOptions(), [open]);
   const today = snoozeDayStart(new Date());
   const monthCells = React.useMemo(() => snoozeMonthGrid(viewMonth), [viewMonth]);
-  const monthLabel = viewMonth.toLocaleDateString(undefined, {
+  const monthLabel = viewMonth.toLocaleDateString(currentMailLocale(), {
     month: "long",
     year: "numeric",
   });
@@ -298,7 +300,7 @@ export function SnoozeMenu({
 
   const submitCustom = () => {
     if (!customValid || !customUntil) {
-      toast.error("Pick a time in the future");
+      toast.error(mailSay("pickTimeInFuture"));
       return;
     }
     choose(customUntil.toISOString());
@@ -320,7 +322,7 @@ export function SnoozeMenu({
             type="button"
             variant="ghost"
             size="icon"
-            aria-label="Snooze"
+            aria-label={t("snooze")}
             title={title}
             className={THREAD_ACTION_CLASS}
           >
@@ -373,7 +375,9 @@ export function SnoozeMenu({
               className="flex w-full items-center justify-between gap-3 rounded-lg px-2.5 py-2 text-left text-sm font-semibold text-stone-800 hover:bg-stone-100"
               onClick={() => setStep("custom")}
             >
-              <span>Pick date & time…</span>
+              <span>
+                {t("pickDateAndTime")}
+              </span>
               <ChevronRight className="h-4 w-4 text-stone-400" aria-hidden />
             </button>
             {onCancelSnooze ? (
@@ -388,7 +392,7 @@ export function SnoozeMenu({
                     onCancelSnooze();
                   }}
                 >
-                  Cancel snooze
+                  {t("cancelSnooze")}
                 </button>
               </>
             ) : null}
@@ -398,7 +402,7 @@ export function SnoozeMenu({
             <div className="flex items-center justify-between gap-2">
               <button
                 type="button"
-                aria-label="Previous month"
+                aria-label={t("previousMonth")}
                 className="rounded-md p-1 text-stone-500 hover:bg-stone-100 hover:text-stone-800"
                 onClick={() =>
                   setViewMonth((m) => {
@@ -413,7 +417,7 @@ export function SnoozeMenu({
               <p className="text-sm font-semibold text-stone-800">{monthLabel}</p>
               <button
                 type="button"
-                aria-label="Next month"
+                aria-label={t("nextMonth")}
                 className="rounded-md p-1 text-stone-500 hover:bg-stone-100 hover:text-stone-800"
                 onClick={() =>
                   setViewMonth((m) => {
@@ -491,7 +495,7 @@ export function SnoozeMenu({
                 ))}
                 <button
                   type="button"
-                  aria-label="Custom time"
+                  aria-label={t("customTime")}
                   onClick={() => setCustomTimeOpen(true)}
                   className={cn(
                     "rounded-lg border border-dashed px-2 py-1 text-xs font-medium transition-colors",

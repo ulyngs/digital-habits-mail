@@ -12,6 +12,7 @@ import {
 import { mailApiJson } from "@/lib/mail/api";
 import { mailUsesCrmPeople } from "@/lib/mail/product-flavor";
 import { showPlannerRecord } from "@/lib/native-shell";
+import { mailSay, useMailT } from "@/lib/mail/i18n";
 import { cn } from "@/lib/utils";
 
 /**
@@ -80,6 +81,7 @@ const TOOL_LABEL: Record<CrmProposal["tool"], string> = {
  * will be before it is stored. Clearing the URL is "no logo".
  */
 function LogoField({ url, onChange }: { url: string; onChange: (url: string) => void }) {
+  const t = useMailT();
   const [broken, setBroken] = React.useState(false);
   const [site, setSite] = React.useState("");
   const [looking, setLooking] = React.useState(false);
@@ -129,7 +131,7 @@ function LogoField({ url, onChange }: { url: string; onChange: (url: string) => 
         </span>
         <input
           className={inputClass}
-          placeholder="Image URL"
+          placeholder={t("imageUrl")}
           value={url}
           onChange={(e) => onChange(e.target.value)}
         />
@@ -137,7 +139,7 @@ function LogoField({ url, onChange }: { url: string; onChange: (url: string) => 
           <button
             type="button"
             className="px-1 text-stone-400 hover:text-stone-700"
-            aria-label="No logo"
+            aria-label={t("noLogo")}
             onClick={() => onChange("")}
           >
             ×
@@ -145,7 +147,7 @@ function LogoField({ url, onChange }: { url: string; onChange: (url: string) => 
         ) : null}
       </div>
       <div className="flex items-center gap-2 pl-12 text-xs text-stone-500">
-        <span className="shrink-0">Wrong one? Look on</span>
+        <span className="shrink-0">{t("wrongOneLookOn")}</span>
         <input
           className={cn(inputClass, "h-7 text-xs")}
           placeholder="the organisation's website, e.g. cocoda.ch"
@@ -239,6 +241,7 @@ export function CrmProposalDialog({
   /** Called after Apply, with how many proposals went through. */
   onApplied: (applied: number) => void;
 }) {
+  const t = useMailT();
   const [rows, setRows] = React.useState<Row[]>([]);
   const [applying, setApplying] = React.useState(false);
 
@@ -328,7 +331,7 @@ export function CrmProposalDialog({
                   label: "View",
                   onClick: () => {
                     void showPlannerRecord(target).then((shown) => {
-                      if (!shown) toast.info("Open the planner to see the record.");
+                      if (!shown) toast.info(mailSay("openPlannerToSee"));
                     });
                   },
                 },
@@ -370,7 +373,7 @@ export function CrmProposalDialog({
         {chip}
         <span aria-hidden className="text-stone-400">⇅</span>
         <select
-          aria-label="Record"
+          aria-label={t("record")}
           className="absolute inset-0 cursor-pointer opacity-0"
           value={str(row.input.recordId)}
           onChange={(e) => {
@@ -435,19 +438,19 @@ export function CrmProposalDialog({
           <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-3">
             <input
               className={inputClass}
-              placeholder="Name"
+              placeholder={t("fieldName")}
               value={str(row.input.name)}
               onChange={(e) => setInput(id, { name: e.target.value })}
             />
             <input
               className={inputClass}
-              placeholder="Email"
+              placeholder={t("fieldEmail")}
               value={str(row.input.email)}
               onChange={(e) => setInput(id, { email: e.target.value })}
             />
             <input
               className={inputClass}
-              placeholder="Title"
+              placeholder={t("fieldTitle")}
               value={str(row.input.title)}
               onChange={(e) => setInput(id, { title: e.target.value })}
             />
@@ -485,7 +488,7 @@ export function CrmProposalDialog({
           <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
             <input
               className={inputClass}
-              placeholder="Name"
+              placeholder={t("fieldName")}
               value={str(row.input.name)}
               onChange={(e) => setInput(id, { name: e.target.value })}
             />
@@ -501,13 +504,13 @@ export function CrmProposalDialog({
               ))}
             </select>
             <label className="flex items-center gap-2 text-sm text-stone-600">
-              <span className="w-20 shrink-0">Status</span>
+              <span className="w-20 shrink-0">{t("status")}</span>
               <select
                 className={cn(inputClass, "w-auto")}
                 value={status}
                 onChange={(e) => setInput(id, { status: e.target.value || undefined })}
               >
-                <option value="">— none —</option>
+                <option value="">{t("noneDash")}</option>
                 {options.map((o) => (
                   <option key={o} value={o}>
                     {o}
@@ -518,7 +521,7 @@ export function CrmProposalDialog({
             </label>
             {source !== "facilitators" ? (
               <label className="flex items-center gap-2 text-sm text-stone-600">
-                <span className="w-20 shrink-0">Next step</span>
+                <span className="w-20 shrink-0">{t("nextStep")}</span>
                 <input
                   className={inputClass}
                   value={str(row.input.nextStep)}
@@ -555,31 +558,31 @@ export function CrmProposalDialog({
             ) : null}
             {contacts.length ? (
               <div className="sm:col-span-2 space-y-1">
-                <div className="text-xs text-stone-500">People on the record</div>
+                <div className="text-xs text-stone-500">{t("peopleOnRecord")}</div>
                 {contacts.map((c, i) => (
                   <div key={i} className="grid grid-cols-[1fr_1fr_1fr_auto] gap-1.5">
                     <input
                       className={inputClass}
-                      placeholder="Name"
+                      placeholder={t("fieldName")}
                       value={str(c.name)}
                       onChange={(e) => setContact(i, { name: e.target.value })}
                     />
                     <input
                       className={inputClass}
-                      placeholder="Email"
+                      placeholder={t("fieldEmail")}
                       value={str(c.email)}
                       onChange={(e) => setContact(i, { email: e.target.value })}
                     />
                     <input
                       className={inputClass}
-                      placeholder="Title"
+                      placeholder={t("fieldTitle")}
                       value={str(c.title)}
                       onChange={(e) => setContact(i, { title: e.target.value })}
                     />
                     <button
                       type="button"
                       className="px-1 text-stone-400 hover:text-stone-700"
-                      aria-label="Remove this person"
+                      aria-label={t("removeThisPerson")}
                       onClick={() => removeContact(i)}
                     >
                       ×
@@ -596,7 +599,7 @@ export function CrmProposalDialog({
           <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
             <input
               className={cn(inputClass, "sm:col-span-2")}
-              placeholder="Title"
+              placeholder={t("fieldTitle")}
               value={str(row.input.title)}
               onChange={(e) => setInput(id, { title: e.target.value })}
             />
@@ -616,7 +619,7 @@ export function CrmProposalDialog({
             />
             <input
               className={cn(inputClass, "sm:col-span-2")}
-              placeholder="Attendees, comma separated"
+              placeholder={t("attendeesCommaSeparated")}
               value={
                 Array.isArray(row.input.attendeeEmails)
                   ? (row.input.attendeeEmails as string[]).join(", ")
@@ -632,7 +635,7 @@ export function CrmProposalDialog({
               }
             />
             <p className="text-xs text-amber-800 sm:col-span-2">
-              This sends an invitation to everyone listed as soon as you apply.
+              {t("invitationOnApply")}
             </p>
           </div>
         );
@@ -649,7 +652,7 @@ export function CrmProposalDialog({
 
   return (
     <SettingsDialog
-      title="Update CRM from this thread"
+      title={t("updateCrmFromThread")}
       subtitle={
         loading && !result
           ? "Reading the thread and matching records…"
@@ -709,10 +712,10 @@ export function CrmProposalDialog({
         </div>
       ) : !rows.length ? (
         <div className="py-4 text-sm text-stone-600">
-          <p>{result?.note ?? result?.error ?? "Nothing to propose."}</p>
+          <p>{result?.note ?? result?.error ?? mailSay("nothingToPropose")}</p>
           {result?.debug ? (
             <details className="mt-3 text-xs text-stone-400">
-              <summary className="cursor-pointer">What the AI saw</summary>
+              <summary className="cursor-pointer">{t("whatTheAiSaw")}</summary>
               <p className="mt-1">
                 {result.debug.messages.length} message
                 {result.debug.messages.length === 1 ? "" : "s"} ·{" "}

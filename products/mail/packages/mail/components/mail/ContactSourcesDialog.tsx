@@ -10,6 +10,7 @@ import {
   SettingsRow,
 } from "@/components/mail/settings-ui";
 import { Button } from "@/components/ui/button";
+import { useMailT, type MailT } from "@/lib/mail/i18n";
 import { mailUsesCrmPeople } from "@/lib/mail/product-flavor";
 import { mailConnectHref } from "@/lib/mail/connect-mailbox";
 import { useMailConnect } from "@/components/mail/use-mail-connect";
@@ -49,57 +50,57 @@ type SourceStatus = {
 };
 
 
-function sourceTitle(source: SourceStatus): string {
+function sourceTitle(source: SourceStatus, t: MailT): string {
   // A CRM source only exists on a build with a CRM (see contact-sources),
   // so this is a second lock on a door that is already shut. It is here
   // because the name of the team layer must never reach a public build by
   // accident, and "already unreachable" is how the last one got out.
   if (source.kind === "crm") {
-    return mailUsesCrmPeople() ? "CRM contacts" : "Contacts";
+    return t(mailUsesCrmPeople() ? "sourceCrmContacts" : "sourceContacts");
   }
-  if (source.kind === "history") return "Mail history";
-  if (source.kind === "google") return "Google Contacts";
-  if (source.kind === "mac") return "Mac Contacts";
-  return "Outlook contacts";
+  if (source.kind === "history") return t("sourceMailHistory");
+  if (source.kind === "google") return t("sourceGoogleContacts");
+  if (source.kind === "mac") return t("sourceMacContacts");
+  return t("sourceOutlookContacts");
 }
 
 function formatCount(n: number): string {
   return n.toLocaleString();
 }
 
-function relativeSyncedAt(iso: string | null): string | null {
+function relativeSyncedAt(iso: string | null, t: MailT): string | null {
   if (!iso) return null;
   const at = Date.parse(iso);
   if (!Number.isFinite(at)) return null;
   const mins = Math.max(0, Math.round((Date.now() - at) / 60000));
-  if (mins < 1) return "synced just now";
-  if (mins < 60) return `synced ${mins} min ago`;
+  if (mins < 1) return t("syncedJustNow");
+  if (mins < 60) return t("syncedMinutesAgo", { count: mins });
   const hours = Math.round(mins / 60);
-  if (hours < 48) return `synced ${hours} h ago`;
+  if (hours < 48) return t("syncedHoursAgo", { count: hours });
   const days = Math.round(hours / 24);
-  return `synced ${days}d ago`;
+  return t("syncedDaysAgo", { count: days });
 }
 
-function editLink(source: SourceStatus): {
-  href: string;
-  label: string;
-} | null {
+function editLink(
+  source: SourceStatus,
+  t: MailT
+): { href: string; label: string } | null {
   if (source.kind === "crm") {
     // /clients is a planner page. A public build has no such route, so the
     // link would go nowhere even if the source somehow existed.
     if (!mailUsesCrmPeople()) return null;
-    return { href: "/clients", label: "edit in CRM → Contacts" };
+    return { href: "/clients", label: t("editInCrm") };
   }
   if (source.kind === "google") {
     return {
       href: "https://contacts.google.com/",
-      label: "edit at contacts.google.com",
+      label: t("editAtGoogle"),
     };
   }
   if (source.kind === "outlook") {
     return {
       href: "https://outlook.live.com/people/",
-      label: "edit at outlook.com/people",
+      label: t("editAtOutlook"),
     };
   }
   return null;
@@ -133,6 +134,7 @@ function SourceToggle({
   disabled?: boolean;
   onChange: (next: boolean) => void;
 }) {
+  const t = useMailT();
   return (
     <button
       type="button"
@@ -159,7 +161,7 @@ function SourceToggle({
           )}
         />
       </span>
-      {enabled ? "On" : "Off"}
+      {enabled ? t("on") : t("off")}
     </button>
   );
 }
@@ -175,6 +177,7 @@ export function ContactSourcesDialog({
   open: boolean;
   onClose: () => void;
 }) {
+  const t = useMailT();
   const [sources, setSources] = React.useState<SourceStatus[] | null>(null);
   const [syncing, setSyncing] = React.useState(false);
   const [toggling, setToggling] = React.useState<string | null>(null);
@@ -188,10 +191,10 @@ export function ContactSourcesDialog({
       setSources(json.sources);
     } catch (err) {
       toast.error(
-        err instanceof Error ? err.message : "Couldn't load contact sources"
+        err instanceof Error ? err.message : t("couldNotLoadContactSources")
       );
     }
-  }, []);
+  }, [t]);
 
   React.useEffect(() => {
     if (open) void load();
@@ -211,16 +214,15 @@ export function ContactSourcesDialog({
       const failed = json.results.filter((r) => !r.ok);
       if (failed.length) {
         toast.error(
-          failed[0].error ||
-            "Some sources need reconnecting for contacts access"
+          failed[0].error || t("sourcesNeedReconnect")
         );
       } else {
-        toast.success("Contact sources updated");
+        toast.success(t("contactSourcesUpdated"));
       }
       await load();
       notifyContactsChanged();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Sync failed");
+      toast.error(err instanceof Error ? err.message : t("syncFailed"));
     } finally {
       setSyncing(false);
     }
@@ -272,7 +274,7 @@ export function ContactSourcesDialog({
       // Newly allowed, and still empty until something reads it.
       if (key === "mac" && enabled) await sync();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Couldn't update");
+      toast.error(err instanceof Error ? err.message : t("couldNotUpdate"));
     } finally {
       setToggling(null);
     }
@@ -282,15 +284,14 @@ export function ContactSourcesDialog({
 
   return (
     <SettingsDialog
-      title="Contact sources"
+      title={t("contactSources")}
       subtitle={
         <>
-          Mail suggests addresses from these places. It never changes them —
-          edits happen at the source. After adding contacts access,{" "}
+          {t("contactSourcesSubtitleBefore")}
           <span className="font-medium text-stone-700">
-            reconnect each mailbox
-          </span>{" "}
-          once, then Sync now.
+            {t("contactSourcesSubtitleBold")}
+          </span>
+          {t("contactSourcesSubtitleAfter")}
         </>
       }
       onClose={onClose}
@@ -298,7 +299,7 @@ export function ContactSourcesDialog({
       footer={
         <>
           <p className="mr-auto text-[11px] leading-relaxed text-stone-400">
-            Mail reads these sources; it never owns or edits them.
+            {t("contactSourcesFooter")}
           </p>
           <Button
             type="button"
@@ -313,7 +314,7 @@ export function ContactSourcesDialog({
             ) : (
               <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
             )}
-            Sync now
+            {t("syncNow")}
           </Button>
         </>
       }
@@ -321,18 +322,18 @@ export function ContactSourcesDialog({
       {sources == null ? (
         <div className="flex items-center justify-center gap-2 py-10 text-sm text-stone-400">
           <Loader2 className="h-4 w-4 animate-spin" />
-          Loading…
+          {t("loading")}
         </div>
       ) : (
         <SettingsGroup>
           <ul className="divide-y divide-stone-200">
               {sources.map((source) => {
-                const link = editLink(source);
+                const link = editLink(source, t);
                 const reconnect = reconnectTarget(source);
                 const needsReconnect = Boolean(
                   source.lastError?.toLowerCase().includes("reconnect")
                 );
-                const synced = relativeSyncedAt(source.syncedAt);
+                const synced = relativeSyncedAt(source.syncedAt, t);
                 const showCount = source.kind !== "history";
                 return (
                   <li
@@ -345,7 +346,7 @@ export function ContactSourcesDialog({
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-2">
                         <p className="text-sm font-semibold text-stone-900">
-                          {sourceTitle(source)}
+                          {sourceTitle(source, t)}
                         </p>
                         {showCount ? (
                           <span
@@ -363,7 +364,7 @@ export function ContactSourcesDialog({
 
                       {source.kind === "crm" ? (
                         <p className="mt-0.5 text-xs text-stone-500">
-                          Your ReDD CRM
+                          {t("yourCrm")}
                           {link ? (
                             <>
                               {" · "}
@@ -401,8 +402,7 @@ export function ContactSourcesDialog({
 
                       {source.kind === "history" ? (
                         <p className="mt-0.5 text-xs text-stone-500">
-                          Addresses you’ve written to before · nothing is stored
-                          as a contact
+                          {t("mailHistoryHint")}
                         </p>
                       ) : null}
 
@@ -414,10 +414,10 @@ export function ContactSourcesDialog({
                       {source.needsAccess ? (
                         <p className="mt-0.5 text-xs text-stone-500">
                           {source.needsAccess === "ask" ? (
-                            "Turn on to let macOS ask about Contacts"
+                            t("macContactsAsk")
                           ) : (
                             <>
-                              macOS is not allowing Contacts ·{" "}
+                              {t("macContactsBlocked")} ·{" "}
                               <button
                                 type="button"
                                 className="font-medium text-teal-700 hover:underline"
@@ -425,7 +425,7 @@ export function ContactSourcesDialog({
                                   void openContactsPrivacySettings()
                                 }
                               >
-                                Open System Settings
+                                {t("openSystemSettings")}
                               </button>
                             </>
                           )}
@@ -452,7 +452,7 @@ export function ContactSourcesDialog({
                                 }}
                                 className="font-medium underline"
                               >
-                                {connecting ? "Opening…" : "Reconnect"}
+                                {connecting ? t("opening") : t("reconnect")}
                               </a>
                             </>
                           ) : null}
@@ -500,7 +500,13 @@ export function ContactSourcesDialogHost() {
  * reflected without reopening the panel.
  */
 export function ContactSourcesSettingsRow({ onOpen }: { onOpen?: () => void }) {
-  const [summary, setSummary] = React.useState<string | null>(null);
+  const t = useMailT();
+  // The counts, not the sentence. The sentence is built at render, so a
+  // change of language rewrites it without asking the sources again.
+  const [counts, setCounts] = React.useState<{
+    sources: number;
+    contacts: number;
+  } | null>(null);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -511,11 +517,10 @@ export function ContactSourcesSettingsRow({ onOpen }: { onOpen?: () => void }) {
         );
         if (cancelled) return;
         const on = json.sources.filter((s) => s.enabled);
-        const contacts = on.reduce((n, s) => n + s.count, 0);
-        setSummary(
-          `${on.length} source${on.length === 1 ? "" : "s"} on \u00b7 ` +
-            `${contacts.toLocaleString()} contact${contacts === 1 ? "" : "s"}`
-        );
+        setCounts({
+          sources: on.length,
+          contacts: on.reduce((n, s) => n + s.count, 0),
+        });
       } catch {
         // The row still opens the panel, which is the part that matters.
       }
@@ -529,10 +534,23 @@ export function ContactSourcesSettingsRow({ onOpen }: { onOpen?: () => void }) {
     };
   }, []);
 
+  const summary = counts
+    ? [
+        counts.sources === 1
+          ? t("sourcesOnOne")
+          : t("sourcesOnMany", { count: counts.sources }),
+        counts.contacts === 1
+          ? t("contactsCountOne")
+          : t("contactsCountMany", {
+              count: counts.contacts.toLocaleString(),
+            }),
+      ].join(" \u00b7 ")
+    : undefined;
+
   return (
     <SettingsRow
-      label="Contact sources"
-      hint={summary ?? undefined}
+      label={t("contactSources")}
+      hint={summary}
       onClick={() => {
         onOpen?.();
         openContactSourcesDialog();

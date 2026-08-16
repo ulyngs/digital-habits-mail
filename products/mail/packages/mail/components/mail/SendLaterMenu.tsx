@@ -19,6 +19,7 @@ import { toast } from "sonner";
 import { Popover, PopoverTrigger } from "@/components/ui/popover";
 import { MailPopoverContent } from "@/components/mail/MailPopoverContent";
 import { snoozeOptions } from "@/components/mail/SnoozeMenu";
+import { mailSay, useMailT } from "@/lib/mail/i18n";
 
 /** `datetime-local` wants local wall-clock, not the ISO string we send. */
 function localInputValue(d: Date): string {
@@ -69,6 +70,7 @@ export function SendLaterMenu({
    */
   trigger: React.ReactNode;
 }) {
+  const t = useMailT();
   const [open, setOpen] = React.useState(false);
   const [custom, setCustom] = React.useState(defaultCustomValue);
   // Recomputed on open, or the offer goes stale overnight.
@@ -88,11 +90,11 @@ export function SendLaterMenu({
   const submitCustom = () => {
     const at = new Date(custom);
     if (!Number.isFinite(at.getTime())) {
-      toast.error("Pick a date and time");
+      toast.error(mailSay("pickADateAndTime"));
       return;
     }
     if (at.getTime() <= Date.now()) {
-      toast.error("Pick a time that has not passed");
+      toast.error(mailSay("pickTimeNotPassed"));
       return;
     }
     choose(at.toISOString());
@@ -127,8 +129,8 @@ export function SendLaterMenu({
             />
             <button
               type="button"
-              title="Now"
-              aria-label="Set to now"
+              title={t("now")}
+              aria-label={t("setToNow")}
               className="shrink-0 rounded p-1 text-stone-400 hover:bg-stone-100 hover:text-stone-700"
               onClick={() => setCustom(nowValue())}
             >
@@ -141,7 +143,7 @@ export function SendLaterMenu({
             disabled={!custom}
             onClick={submitCustom}
           >
-            Set
+            {t("set")}
           </button>
         </div>
         {/* The one thing a reader has to be able to trust about this. */}

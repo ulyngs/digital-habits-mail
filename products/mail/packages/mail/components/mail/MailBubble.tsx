@@ -49,6 +49,7 @@ import { decodeHtmlEntities } from "@/lib/html-entities";
 import { messageStamp } from "@/lib/mail/date-format";
 import { useMailColorMode } from "@/lib/mail/theme";
 import type { MailAttachment } from "@/lib/mail/types";
+import { mailSay, useMailT } from "@/lib/mail/i18n";
 import { cn } from "@/lib/utils";
 
 const MAIL_IMAGES_SENDER_KEY = "redd-plan-mail-images-senders";
@@ -123,6 +124,7 @@ function MessageHoverActions({
   onToggleDetails?: () => void;
   detailsOpen?: boolean;
 }) {
+  const t = useMailT();
   const [menuOpen, setMenuOpen] = React.useState(false);
   const canCopy = Boolean(bodyText.trim());
   const hasMenu =
@@ -163,8 +165,8 @@ function MessageHoverActions({
       {onReplyTo ? (
         <button
           type="button"
-          title="Reply to this message"
-          aria-label="Reply to this message"
+          title={t("replyToThisMessage")}
+          aria-label={t("replyToThisMessage")}
           className={item}
           onClick={onReplyTo}
         >
@@ -176,8 +178,8 @@ function MessageHoverActions({
           <PopoverTrigger asChild>
             <button
               type="button"
-              title="More"
-              aria-label="More actions for this message"
+              title={t("more")}
+              aria-label={t("moreActionsForMessage")}
               className={item}
             >
               <MoreHorizontal className="h-4 w-4" />
@@ -198,7 +200,7 @@ function MessageHoverActions({
                 }}
               >
                 <Forward className="h-4 w-4 shrink-0 text-stone-400" aria-hidden />
-                Forward
+                {t("actionForward")}
               </button>
             ) : null}
             {canCopy ? (
@@ -209,12 +211,12 @@ function MessageHoverActions({
                   setMenuOpen(false);
                   void navigator.clipboard
                     .writeText(bodyText)
-                    .then(() => toast.success("Copied"))
-                    .catch(() => toast.error("Couldn't copy that"));
+                    .then(() => toast.success(mailSay("copied")))
+                    .catch(() => toast.error(mailSay("couldNotCopyThat")));
                 }}
               >
                 <Copy className="h-4 w-4 shrink-0 text-stone-400" aria-hidden />
-                Copy text
+                {t("copyText")}
               </button>
             ) : null}
             {onToggleDetails ? (
@@ -240,7 +242,7 @@ function MessageHoverActions({
                 }}
               >
                 <Printer className="h-4 w-4 shrink-0 text-stone-400" aria-hidden />
-                Print
+                {t("print")}
               </button>
             ) : null}
           </PopoverContent>
@@ -337,6 +339,7 @@ export function MailBubble({
    */
   showPrint?: boolean;
 }) {
+  const t = useMailT();
   const [showQuoted, setShowQuoted] = React.useState(false);
   const [detailsOpen, setDetailsOpen] = React.useState(false);
   const [bodyFullyExpanded, setBodyFullyExpanded] = React.useState(false);
@@ -514,18 +517,18 @@ export function MailBubble({
   const statusCaption = sendingOut ? (
     <div className="mt-1 flex items-center gap-1 px-1 text-[11px] text-stone-400">
       <Clock className="h-3 w-3 shrink-0" aria-hidden />
-      <span>Sending…</span>
+      <span>{t("sending")}</span>
     </div>
   ) : failedOut ? (
     <div className="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 px-1 text-[11px] text-red-600/90">
-      <span>Not sent</span>
+      <span>{t("notSent")}</span>
       <span aria-hidden>·</span>
       <button
         type="button"
         className="font-medium underline-offset-2 hover:underline"
         onClick={onRetrySend}
       >
-        Retry
+        {t("retry")}
       </button>
       <span aria-hidden>·</span>
       <button
@@ -533,7 +536,7 @@ export function MailBubble({
         className="font-medium underline-offset-2 hover:underline"
         onClick={onEditSend}
       >
-        Edit
+        {t("edit")}
       </button>
     </div>
   ) : null;
@@ -842,7 +845,7 @@ export function MailBubble({
               className="rounded-full bg-white px-3 py-1 text-xs font-medium text-teal-700 shadow-sm ring-1 ring-stone-200 hover:text-teal-800"
               onClick={() => setBodyFullyExpanded(true)}
             >
-              Show full message
+              {t("showFullMessage")}
             </button>
           </div>
         ) : bodyFullyExpanded && isTall ? (
@@ -857,7 +860,7 @@ export function MailBubble({
               className="text-xs text-stone-500 underline-offset-2 hover:text-stone-800 hover:underline"
               onClick={() => setBodyFullyExpanded(false)}
             >
-              Show less
+              {t("showLess")}
             </button>
           </div>
         ) : null}
