@@ -89,7 +89,10 @@ import {
 } from "@/lib/mail/shortcuts";
 import { useMailShortcuts } from "@/lib/mail/use-mail-shortcuts";
 import { MoveToFolderMenu } from "@/components/mail/MailFolders";
-import { RecipientField } from "@/components/mail/RecipientField";
+import {
+  RecipientField,
+  SaveAsListControl,
+} from "@/components/mail/RecipientField";
 import {
   fetchSignatureSettings,
   SignatureDialog,
@@ -281,22 +284,75 @@ const THREAD_PARTICIPANTS_SHOWN = 4;
  * Not a hover or a tooltip. Who a mail went to is worth reading at leisure,
  * and often worth copying, neither of which a thing that vanishes allows.
  */
-function ThreadParticipants({ people }: { people: string[] }) {
+function ThreadParticipants({
+  people,
+  others,
+  meta,
+}: {
+  people: string[];
+  /** The same people, addressable — what a saved list would hold. */
+  others: { email: string; name?: string }[];
+  /** The rest of the header line: count, dates, which mailbox. */
+  meta: React.ReactNode;
+}) {
+  const t = useMailT();
   const [expanded, setExpanded] = React.useState(false);
   const hidden = people.length - THREAD_PARTICIPANTS_SHOWN;
-  if (hidden <= 0) return <>{people.join(", ")}</>;
+  /*
+    "Save as list…" waits for the names to be out.
+
+    Fifty-two people are counted, not named, and the offer to keep them
+    made no sense beside a line that had four addresses and a number on
+    it: keep whom? Once the reader opens the names they can see what they
+    would be keeping, and that is when it is worth asking. A short thread
+    hides nobody, so there is nothing to wait for.
+  */
+  const showSave = others.length > 1 && (hidden <= 0 || expanded);
+  /*
+    Beside the names, not at the end of the line.
+
+    It belongs to the people — it is what to do with the ones just opened —
+    and the rest of the line is a message count and two dates it has
+    nothing to do with. Small letter for the same reason: after "show
+    fewer" it is one more thing this sentence offers, not a control of its
+    own the way it is in the composer.
+  */
+  const saveList = showSave ? (
+    <>
+      {" · "}
+      <SaveAsListControl
+        people={others}
+        align="start"
+        noteKey="saveListNoteThread"
+        labelKey="saveAsListInline"
+      />
+    </>
+  ) : null;
+  if (hidden <= 0) {
+    return (
+      <span>
+        {people.join(", ")}
+        {saveList} {meta}
+      </span>
+    );
+  }
   const shown = expanded ? people : people.slice(0, THREAD_PARTICIPANTS_SHOWN);
   return (
-    <>
+    <span>
       {shown.join(", ")}{" "}
       <button
         type="button"
         className="font-medium text-teal-700 hover:underline"
         onClick={() => setExpanded((v) => !v)}
       >
-        {expanded ? "show fewer" : `and ${hidden} other${hidden === 1 ? "" : "s"}`}
+        {expanded
+          ? t("threadShowFewer")
+          : hidden === 1
+            ? t("threadOtherOne")
+            : t("threadOtherMany", { count: hidden })}
       </button>
-    </>
+      {saveList} {meta}
+    </span>
   );
 }
 
@@ -316,10 +372,10 @@ function ThreadParticipants({ people }: { people: string[] }) {
  * "You (ulrik@a.com, ulrik@b.com)". Own is not one address, and the header
  * is the one place to see which of yours a thread ran through.
  */
-function participantsWithAddresses(
+function threadPeople(
   messages: MailMessage[],
   ownAddresses: string[]
-): string[] {
+): { others: { email: string; name?: string }[]; yours: string[] } {
   const own = new Set(ownAddresses.map((a) => a.trim().toLowerCase()));
   for (const m of messages) {
     if (m.own && m.fromEmail) own.add(m.fromEmail.trim().toLowerCase());
@@ -332,7 +388,7 @@ function participantsWithAddresses(
       nameByAddress.set(key, name);
     }
   }
-  const others: string[] = [];
+  const others: { email: string; name?: string }[] = [];
   const yours: string[] = [];
   const seen = new Set<string>();
   const add = (raw: string) => {
@@ -344,15 +400,25 @@ function participantsWithAddresses(
       yours.push(email);
       return;
     }
-    const name = nameByAddress.get(key);
-    others.push(name ? `${name} (${email})` : email);
+    others.push({ email, name: nameByAddress.get(key) });
   };
   for (const m of messages) {
     add(m.fromEmail);
     for (const to of m.toEmails) add(to);
     for (const cc of m.ccEmails) add(cc);
   }
-  return [...others, ...(yours.length ? [`You (${yours.join(", ")})`] : [])];
+  return { others, yours };
+}
+
+function participantsWithAddresses(
+  messages: MailMessage[],
+  ownAddresses: string[]
+): string[] {
+  const { others, yours } = threadPeople(messages, ownAddresses);
+  return [
+    ...others.map((p) => (p.name ? `${p.name} (${p.email})` : p.email)),
+    ...(yours.length ? [`You (${yours.join(", ")})`] : []),
+  ];
 }
 
 /**
@@ -3669,6 +3735,11 @@ export function ThreadPane({
 
   const first = thread.messages[0];
   const last = thread.messages[thread.messages.length - 1];
+  /* Everyone on the thread but us — who a saved list would hold. Plainly,
+     not memoized: this sits after the early returns above, where a hook
+     would change the order React counts. */
+  const threadOthers = threadPeople(thread.messages, [account, ...accounts])
+    .others;
   const dateRange =
     first?.sentAt && last?.sentAt && shortDate(first.sentAt) !== shortDate(last.sentAt)
       ? `${shortDate(first.sentAt)} – ${shortDate(last.sentAt)}`
@@ -4150,17 +4221,29 @@ export function ThreadPane({
             ) : null}
           </div>
           <p className="mt-0.5 flex flex-wrap items-center gap-1 text-xs text-stone-500">
-            <span>
-              <ThreadParticipants
-                people={participantsWithAddresses(thread.messages, [
-                  account,
-                  ...accounts,
-                ])}
-              />{" "}
-              · {totalMessageCount} message
-              {totalMessageCount === 1 ? "" : "s"} · {dateRange} · received on{" "}
-              {account}
-            </span>
+            {/*
+              A circular arrives with the whole club on it, and that is a
+              list worth keeping — the same list the composer offers to save
+              when you type the names in yourself. Here they are already
+              gathered, so the offer belongs here too. It lives inside the
+              participants, which is what knows whether the names are out.
+            */}
+            <ThreadParticipants
+              people={participantsWithAddresses(thread.messages, [
+                account,
+                ...accounts,
+              ])}
+              others={threadOthers}
+              meta={
+                <>
+                  ·{" "}
+                  {totalMessageCount === 1
+                    ? t("threadMessageOne")
+                    : t("threadMessageMany", { count: totalMessageCount })}{" "}
+                  · {dateRange} · {t("threadReceivedOn")} {account}
+                </>
+              }
+            />
             {chatParts.length > 1 ? (
               <>
                 <span aria-hidden>·</span>

@@ -4,6 +4,7 @@ import * as React from "react";
 import { createPortal } from "react-dom";
 import { flushPendingDiscards } from "@/lib/mail/pending-discard";
 import { successorAfterRemoving, successorInEitherOrder } from "@/lib/mail/successor";
+import { useApplyUiScale, useUiScale } from "@/lib/mail/use-ui-scale";
 import { useMailColorMode, useMailTheme, type MailTheme } from "@/lib/mail/theme";
 import { onMailComposeTo } from "@/lib/mail/compose-to";
 import {
@@ -197,6 +198,7 @@ import {
   SettingsGroup,
   SettingsHeading,
   SettingsLanguageRow,
+  SettingsTextSizeRow,
   SettingsRow,
   SettingsToggle,
   settingsSecondaryButton,
@@ -673,6 +675,7 @@ function MailLayoutMenu({
         <SettingsGroup>
           {/* The language first: it decides what every row under it says. */}
           <SettingsLanguageRow />
+          <SettingsTextSizeRow />
           <SettingsRow
             label={t("theme")}
             control={
@@ -1151,7 +1154,7 @@ function ThreadListRow({
         setMenuAt({ x: e.clientX, y: e.clientY });
       }}
       className={cn(
-        "group flex cursor-grab transition-colors active:cursor-grabbing",
+        "group relative flex cursor-grab transition-colors active:cursor-grabbing",
         // No ring of the browser's own. A row is focusable so the arrow keys
         // can carry focus with the selection, and the selection is already
         // painted — the ring drew a second, louder marker over the top of it,
@@ -1162,13 +1165,26 @@ function ThreadListRow({
           : compact
             ? cn("items-center gap-2.5 py-1.5", padX)
             : cn("items-start gap-3 py-3", padX),
+        /*
+          The open thread, said twice: white, and a bar down the left.
+
+          White because the list is cream now, and the plainest surface in
+          the app reads as the one being attended to — the same way a
+          message is a white sheet in a cream room. It was a teal wash, from
+          when the list was white and a tint was the only way to say
+          anything at all; two colors saying "this one" is one more than the
+          bar already needs. Dark rewrites bg-white to its lifted navy, so
+          the same rule holds there.
+        */
         onNavy
           ? selected
             ? "bg-white/15"
             : "hover:bg-white/10"
           : selected
-            ? "bg-cream-section"
-            : "hover:bg-[#f4f1ec]"
+            ? "bg-white"
+            : "hover:bg-[#f4f1ec]",
+        selected &&
+          "before:absolute before:inset-y-0 before:left-0 before:w-[4px] before:rounded-r-[1px] before:bg-teal-600"
       )}
     >
       <SenderAvatar
@@ -2768,6 +2784,8 @@ export function MailPage({
   const [listDensity, setListDensity] = useMailListDensity();
   const colorMode = useMailColorMode();
   const chromeDark = colorMode === "dark";
+  // The reader's own size for the whole app — see use-ui-scale.
+  useApplyUiScale(useUiScale()[0]);
   const { drafts, loading: draftsLoading, refresh: refreshDrafts } =
     useMailDrafts();
   const draftsView = tab === "drafts";
@@ -2915,6 +2933,14 @@ export function MailPage({
           ? "snoozed"
           : "inbox";
   const searchScopeKey = mailboxScopeKey(mailboxScopeEmails, accountEmails);
+  /**
+   * How many mailboxes the running search is asking.
+   *
+   * An empty scope means every connected mailbox — see the state above —
+   * so counting the list itself said "Searching 0 mailboxes", which is the
+   * one number it can never be while a search is running.
+   */
+  const searchingMailboxCount = mailboxScopeEmails.length || accountEmails.length;
   const listCacheKey = mailListCacheKey(
     activeFolder ? `label:${folderViewToken(activeFolder)}` : folder,
     debouncedSearch ? `${debouncedSearch}|${searchScopeKey}` : ""
@@ -6248,15 +6274,32 @@ export function MailPage({
           title={t("dragToResizeFolders")}
           // On the right, the rail grows as the pointer goes left.
           onPointerDown={(e) => startRailResize(e, { invertDrag: railOnRight })}
-          className="w-1 shrink-0 cursor-col-resize touch-none bg-transparent transition-colors hover:bg-[var(--mail-chrome-border)] active:bg-[var(--mail-chrome-border)]"
+          /*
+            It takes hold of the seam without taking any of it.
+
+            Four pixels of column between the rail and the list is four
+            pixels the list cannot paint, and the bar down the side of the
+            open thread stopped short of the rail because of it. The strip
+            lies over the list's first four pixels instead — negative margin
+            to give the width back, `relative` so it stays above the list and
+            keeps the drag, and transparent so what it lies over shows
+            through.
+          */
+          className={cn(
+            "relative z-10 w-1 shrink-0 cursor-col-resize touch-none bg-transparent transition-colors hover:bg-[var(--mail-chrome-border)] active:bg-[var(--mail-chrome-border)]",
+            railOnRight ? "-ml-1" : "-mr-1"
+          )}
           style={{ order: 2 }}
         />
       ) : null}
       <div
         className={cn(
-          // White under the transparent resize gutter so list cream ends at
-          // border-r (a cream parent made the sidebar look like it bled past).
-          "flex min-h-0 min-w-0 flex-1 overflow-hidden bg-[var(--mail-pane)]",
+          // What shows through the transparent resize gutter, so it has to
+          // be what is on both sides of it. That was white while the reader
+          // was white; with the reader on cream it was a white stripe down
+          // the join. The list's own border-r is what stops the cream
+          // bleeding past the list — not a change of color here.
+          "flex min-h-0 min-w-0 flex-1 overflow-hidden bg-[var(--mail-thread)]",
           listVertical ? "flex-col" : "flex-row"
         )}
         // Before the rail when the rail is on the right; after it otherwise.
@@ -6498,16 +6541,23 @@ export function MailPage({
             takes as long as it does and why rows land in bursts.
           */}
           {debouncedSearch && (loadingList || refreshing) && !listNarrow ? (
-            <div className="border-b border-white/5 px-5 pb-2 pt-3">
-              <p className="flex items-center gap-1.5 text-[12px] font-semibold text-white/75">
+            /*
+              Chrome colors, not white. This was written for a list that sat
+              on the navy chrome, and on the cream one it was white text on
+              near-white: a blank band above the results, with the spinner
+              invisible in it too. What it looked like was a search that had
+              lost its earlier rows and left a hole where they had been.
+            */
+            <div className="border-b border-[var(--mail-chrome-border)] px-5 pb-2 pt-3">
+              <p className="flex items-center gap-1.5 text-[12px] font-semibold text-[var(--mail-chrome-muted)]">
                 <Loader2 className="h-3 w-3 animate-spin" aria-hidden />
-                {mailboxScopeEmails.length === 1
+                {searchingMailboxCount === 1
                   ? t("searchingMailbox")
                   : t("searchingMailboxes", {
-                      count: mailboxScopeEmails.length,
+                      count: searchingMailboxCount,
                     })}
               </p>
-              <p className="pt-0.5 text-[11px] leading-snug text-white/45">
+              <p className="pt-0.5 text-[11px] leading-snug text-[var(--mail-chrome-faint)]">
                 {t("searchingHint")}
               </p>
             </div>
@@ -7015,7 +7065,7 @@ export function MailPage({
           {/* Results in hand, and more of them behind the button below. A
               search that has answered still looks finished, so say it is not. */}
           {debouncedSearch && listCursor && !loadingList && !listNarrow ? (
-            <p className="px-5 pt-3 text-[11px] leading-snug text-white/40">
+            <p className="px-5 pt-3 text-[11px] leading-snug text-[var(--mail-chrome-faint)]">
               {t("firstMatches")}
             </p>
           ) : null}
@@ -7107,7 +7157,14 @@ export function MailPage({
       <div
         // No overflow clip here — the action band must paint over the resize
         // gutter to the list border. Message scrolling is on ThreadPane.
-        className="flex min-h-0 min-w-0 flex-1 flex-col bg-[var(--mail-pane)]"
+        //
+        // The reader's cream, not the pane's white: everything in here is the
+        // reader, and the two that draw a message — ThreadPane and the
+        // composer — already paint this same color over the top. What it
+        // changes is the states that draw nothing much: the resting picture,
+        // the wait for a first inbox, the note that no mailbox is connected.
+        // Those were the one place the old white still showed through.
+        className="flex min-h-0 min-w-0 flex-1 flex-col bg-[var(--mail-thread)]"
         style={{ order: listFirst ? 3 : 1 }}
       >
         {composing ? (

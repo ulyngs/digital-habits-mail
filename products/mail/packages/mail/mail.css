@@ -237,10 +237,19 @@
   --mail-chrome-pinned-fg: #faf8f5;
   --mail-tab-active: #1c1917;
   --mail-pane: #ffffff;
-  --mail-thread: #ffffff;
+  /*
+   * The reader is a room; a message is a sheet of paper in it.
+   *
+   * So the room takes the cream the rest of the chrome is in — header, the
+   * canvas behind the messages, the bar of actions at the foot — and white
+   * is kept for the messages themselves. It was the other way round, which
+   * put the brightest surface behind the message and a tint on the message,
+   * and read as though the paper were the thing that had been colored in.
+   */
+  --mail-thread: #faf8f5;
   --mail-thread-fg: #1c1917;
   --mail-thread-muted: rgb(120 113 108);
-  --mail-bubble-other: #faf8f5;
+  --mail-bubble-other: #ffffff;
   --mail-bubble-other-border: rgb(231 229 228);
   --mail-bubble-own: #f0fdfa;
   /* A desaturated mint: darker than the fill but nowhere near teal. The
@@ -355,7 +364,7 @@
  * fill, the border and the fade at a clamped message all follow together.
  */
 .mail-shell[data-theme="dark"] .mail-bubble-surface {
-  --mail-bubble-other: #faf8f5;
+  --mail-bubble-other: #ffffff;
   --mail-bubble-other-border: rgb(231 229 228);
   --mail-bubble-own: #ccfbf1;
   --mail-bubble-own-border: rgb(183 222 211);

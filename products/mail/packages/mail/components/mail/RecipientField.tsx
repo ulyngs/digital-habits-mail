@@ -28,7 +28,11 @@ import {
   chipSelectionAfterRemoval,
   recipientsToClipboardText,
 } from "@/lib/mail/recipient-chips";
-import { mailSay, useMailT } from "@/lib/mail/i18n";
+import {
+  mailSay,
+  useMailT,
+  type MailStringKey,
+} from "@/lib/mail/i18n";
 import { cn } from "@/lib/utils";
 import { mailApiJson as apiJson } from "@/lib/mail/api";
 import { mailApiFetch } from "@/lib/mail/api";
@@ -384,16 +388,33 @@ async function copyTextToClipboard(text: string): Promise<boolean> {
   }
 }
 
-function SaveAsListControl({
+/**
+ * "Save as list…", for a set of people already gathered.
+ *
+ * Exported because the compose field is not the only place a group of
+ * addresses sits together: a circular that arrives in the inbox has the
+ * whole club on it, and that is a list you want long before you write the
+ * reply. The thread header uses it — see ThreadPane.
+ */
+export function SaveAsListControl({
   people,
-  contacts,
+  contacts = [],
   onSaved,
   className,
+  align = "end",
+  noteKey = "saveListNote",
+  labelKey = "saveAsList",
 }: {
   people: { email: string; name?: string }[];
-  contacts: ContactSuggestion[];
-  onSaved: (list: MailContactList) => void;
+  /** Only to fill in a name the caller does not have. */
+  contacts?: ContactSuggestion[];
+  onSaved?: (list: MailContactList) => void;
   className?: string;
+  align?: "start" | "end";
+  /** The small print under the box: it reads differently while composing. */
+  noteKey?: MailStringKey;
+  /** Its own control in the composer; part of a sentence in a thread. */
+  labelKey?: MailStringKey;
 }) {
   const t = useMailT();
   const [open, setOpen] = React.useState(false);
@@ -418,12 +439,14 @@ function SaveAsListControl({
         }
       );
       await refreshLists();
-      onSaved(json.list);
+      onSaved?.(json.list);
       setOpen(false);
       setName("");
-      toast.success(`Saved list “${json.list.name}”`);
+      toast.success(mailSay("savedListNamed", { name: json.list.name }));
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Couldn't save list");
+      toast.error(
+        err instanceof Error ? err.message : mailSay("couldNotSaveList")
+      );
     } finally {
       setSaving(false);
     }
@@ -439,10 +462,10 @@ function SaveAsListControl({
             className
           )}
         >
-          {t("saveAsList")}
+          {t(labelKey)}
         </button>
       </PopoverTrigger>
-      <MailPopoverContent align="end" className="w-72 p-3">
+      <MailPopoverContent align={align} className="w-72 p-3">
         <p className="text-sm font-medium text-stone-800">
           {t("saveTheseAsList", { count: people.length })}
         </p>
@@ -477,7 +500,7 @@ function SaveAsListControl({
           </button>
         </div>
         <p className="mt-3 text-[11px] leading-snug text-stone-400">
-          {t("saveListNote")}
+          {t(noteKey)}
         </p>
       </MailPopoverContent>
     </Popover>

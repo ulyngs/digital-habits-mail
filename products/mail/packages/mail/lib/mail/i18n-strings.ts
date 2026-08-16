@@ -44,6 +44,9 @@ const en = {
   done: "Done",
   general: "General",
   language: "Language",
+  appTextSize: "Text size",
+  appTextSizeHint: "How big the whole app is drawn — folders, list and menus.",
+  resetTextSize: "Back to 100%",
   languagePickerCurrent: "Current language",
   languagePickerSwitch: "Switch to",
   theme: "Theme",
@@ -285,6 +288,8 @@ const en = {
   loadingMore: "Loading more",
   editList: "Edit list",
   createList: "Create list",
+  mailboxBusy:
+    "Outlook is busy with this mailbox. Wait a moment, then try again.",
   stillPreparingFiles: "Still preparing the files…",
   previewNotAvailable: "Preview not available",
   addToFavourites: "Add to favourites",
@@ -324,6 +329,10 @@ const en = {
   saveTheseAsList: "Save these {count} people as a list",
   saveListNote:
     "The recipients stay on this email. Next time, type the list name.",
+  // The same offer made over a mail that has arrived: nothing here is going
+  // to be sent, so there is nothing to reassure the reader about.
+  saveListNoteThread:
+    "Everyone on this email goes in the list. Next time, type the list name.",
   // Where a suggested address came from
   badgeCrm: "CRM",
   badgeTeam: "TEAM",
@@ -450,6 +459,16 @@ const en = {
   signatureColon: "Signature:",
   attachmentCountOne: "1 attachment",
   attachmentCountMany: "{count} attachments",
+  // The line under a thread's subject: who is on it, how many messages,
+  // and which mailbox of yours it came to.
+  threadShowFewer: "show fewer",
+  threadOtherOne: "and 1 other",
+  threadOtherMany: "and {count} others",
+  threadMessageOne: "1 message",
+  threadMessageMany: "{count} messages",
+  threadReceivedOn: "received on",
+  savedListNamed: "Saved list “{name}”",
+  couldNotSaveList: "Couldn't save list",
   inviteCountOne: "1 invite",
   inviteCountMany: "{count} invites",
   outOfOfficeReplyOn: "Out-of-office reply on:",
@@ -503,6 +522,9 @@ const en = {
   manage: "Manage",
   people: "People",
   saveAsList: "Save as list…",
+  // Inline after "show fewer", where it is part of a sentence rather than
+  // a control of its own — so it takes that sentence's small letter.
+  saveAsListInline: "save as list…",
   sendAsBcc: "Send as Bcc",
   listDeleted: "List deleted",
   listUpdated: "List updated",
@@ -681,6 +703,9 @@ const da: Partial<Record<keyof typeof en, string>> = {
   done: "Færdig",
   general: "Generelt",
   language: "Sprog",
+  appTextSize: "Tekststørrelse",
+  appTextSizeHint: "Hvor stor hele appen vises — mapper, liste og menuer.",
+  resetTextSize: "Tilbage til 100 %",
   languagePickerCurrent: "Nuværende sprog",
   languagePickerSwitch: "Skift til",
   theme: "Tema",
@@ -921,6 +946,8 @@ const da: Partial<Record<keyof typeof en, string>> = {
   loadingMore: "Henter flere",
   editList: "Rediger liste",
   createList: "Opret liste",
+  mailboxBusy:
+    "Outlook har travlt med denne postkasse. Vent et øjeblik, og prøv igen.",
   stillPreparingFiles: "Forbereder stadig filerne…",
   previewNotAvailable: "Forhåndsvisning er ikke mulig",
   addToFavourites: "Føj til foretrukne",
@@ -960,6 +987,8 @@ const da: Partial<Record<keyof typeof en, string>> = {
   saveTheseAsList: "Gem disse {count} personer som en liste",
   saveListNote:
     "Modtagerne bliver på denne mail. Næste gang skriver du listens navn.",
+  saveListNoteThread:
+    "Alle på denne mail kommer med på listen. Næste gang skriver du listens navn.",
   badgeCrm: "CRM",
   badgeTeam: "TEAM",
   badgeGoogle: "GOOGLE",
@@ -1084,6 +1113,14 @@ const da: Partial<Record<keyof typeof en, string>> = {
   signatureColon: "Signatur:",
   attachmentCountOne: "1 vedhæftet fil",
   attachmentCountMany: "{count} vedhæftede filer",
+  threadShowFewer: "vis færre",
+  threadOtherOne: "og 1 anden",
+  threadOtherMany: "og {count} andre",
+  threadMessageOne: "1 besked",
+  threadMessageMany: "{count} beskeder",
+  threadReceivedOn: "modtaget på",
+  savedListNamed: "Gemte listen “{name}”",
+  couldNotSaveList: "Kunne ikke gemme listen",
   inviteCountOne: "1 indkaldelse",
   inviteCountMany: "{count} indkaldelser",
   outOfOfficeReplyOn: "Autosvar ved fravær er slået til:",
@@ -1137,6 +1174,7 @@ const da: Partial<Record<keyof typeof en, string>> = {
   manage: "Håndter",
   people: "Personer",
   saveAsList: "Gem som liste…",
+  saveAsListInline: "gem som liste…",
   sendAsBcc: "Send som Bcc",
   listDeleted: "Listen er slettet",
   listUpdated: "Listen er opdateret",

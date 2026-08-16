@@ -27,6 +27,12 @@ import {
   useMailT,
   type MailLang,
 } from "@/lib/mail/i18n";
+import {
+  UI_SCALE_MAX,
+  UI_SCALE_MIN,
+  nextUiScaleStop,
+} from "@/lib/mail/ui-scale";
+import { useUiScale } from "@/lib/mail/use-ui-scale";
 import { cn } from "@/lib/utils";
 
 /** The small capitals over a section. */
@@ -203,6 +209,71 @@ function LanguageFlag({ lang }: { lang: MailLang }) {
  * Two languages make that list one line long, but the shape stays the same as
  * the other apps, and a third language drops in without a redesign.
  */
+/**
+ * How big the whole app is drawn.
+ *
+ * A minus, the size, and a plus — the same three the thread's own zoom has,
+ * because a reader who has found one of them knows what the other does. The
+ * number itself is the way back to 100%: it is a button, and pressing it
+ * puts the app back where it started, which is quicker than counting steps
+ * down and is the thing a reader wants after overshooting.
+ */
+export function SettingsTextSizeRow() {
+  const t = useMailT();
+  const [scale, setScale] = useUiScale();
+  const percent = Math.round(scale * 100);
+  const step = (direction: 1 | -1) => setScale(nextUiScaleStop(scale, direction));
+  const buttonClass =
+    "rounded-full px-1.5 text-[15px] leading-none text-stone-500 hover:bg-stone-200/70 hover:text-stone-800 disabled:opacity-40 disabled:hover:bg-transparent";
+  return (
+    <SettingsRow
+      label={t("appTextSize")}
+      hint={t("appTextSizeHint")}
+      control={
+        <span className="flex items-center gap-0.5 rounded-full border border-stone-200 bg-white px-1.5 py-1">
+          <button
+            type="button"
+            aria-label={t("smallerText")}
+            title={t("smallerText")}
+            disabled={scale <= UI_SCALE_MIN}
+            onClick={() => step(-1)}
+            className={buttonClass}
+          >
+            −
+          </button>
+          {/* The widest label sizes the cell so the row does not shuffle
+              as the number changes — the same trick as ZoomControls. */}
+          <span className="grid text-[11px] tabular-nums text-stone-500">
+            <span className="invisible col-start-1 row-start-1" aria-hidden>
+              100%
+            </span>
+            <button
+              type="button"
+              title={t("resetTextSize")}
+              aria-label={t("resetTextSize")}
+              disabled={scale === 1}
+              onClick={() => setScale(1)}
+              className="col-start-1 row-start-1 text-center hover:text-stone-800 disabled:hover:text-stone-500"
+            >
+              {percent}%
+            </button>
+          </span>
+          <button
+            type="button"
+            aria-label={t("biggerText")}
+            title={t("biggerText")}
+            disabled={scale >= UI_SCALE_MAX}
+            onClick={() => step(1)}
+            className={buttonClass}
+          >
+            +
+          </button>
+        </span>
+      }
+    />
+  );
+}
+
 export function SettingsLanguageRow() {
   const t = useMailT();
   const [lang, setLang] = useMailLang();
