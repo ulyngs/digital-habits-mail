@@ -463,6 +463,9 @@ export function demoThreads(): DemoThread[] {
             "Booking og formidling",
             "Tlf. 00 00 00 00",
           ].join("\n"),
+          attachments: [
+            file("a-invite", "invite.ics", "text/calendar", 620),
+          ],
         }),
       ],
     },

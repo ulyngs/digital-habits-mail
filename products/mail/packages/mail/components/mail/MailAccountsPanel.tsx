@@ -36,7 +36,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
-import { AccountMark } from "@/components/mail/AccountMark";
+import { AccountMarkButton } from "@/components/mail/AccountMarkButton";
 import {
   autoReplyActive,
   type AutoReplyDto,
@@ -53,7 +53,6 @@ import {
   sortAccountsByOrder,
   writeAccountOrder,
 } from "@/lib/mail/account-order";
-import { useAccountMarks } from "@/lib/mail/account-mark";
 import { mailApiJson as apiJson } from "@/lib/mail/api";
 import { currentMailLocale, useMailT } from "@/lib/mail/i18n";
 import { mailUsesCrmPeople } from "@/lib/mail/product-flavor";
@@ -157,7 +156,6 @@ function SortableAccountRow({
   onEndAutoReply: () => void;
 }) {
   const t = useMailT();
-  const marks = useAccountMarks();
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id: account.email });
   /** A press on a control is a press, not the beginning of a drag. */
@@ -200,12 +198,15 @@ function SortableAccountRow({
         aria-label={t("reorderAccount", { email: account.email })}
       >
       {/* The same mark the mailbox wears on its tab, so the two rows read as
-          the same list of mailboxes — the reader's own picture when they have
-          set one, and the provider's otherwise. */}
-      <AccountMark
-        mark={marks[account.email.trim().toLowerCase()]}
+          the same list of mailboxes — and the same button, so it can be
+          changed from either. On a tab the menu is a right-click, because a
+          left-click there picks the mailbox; here there is nothing else the
+          mark could mean. */}
+      <AccountMarkButton
+        account={account.email}
         provider={isOutlook ? "outlook" : "gmail"}
-        className={cn("h-4 w-4", !account.inMailTab && "opacity-40")}
+        title={t("changeAccountPicture")}
+        markClassName={cn("h-4 w-4", !account.inMailTab && "opacity-40")}
       />
       <div className="min-w-0 flex-1">
         <p className={cn("truncate text-sm", !account.inMailTab && "text-stone-400")}>

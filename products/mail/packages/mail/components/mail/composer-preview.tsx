@@ -78,8 +78,10 @@ export function SignatureMetaControls({
   return (
     <span className={`flex min-w-0 items-center gap-2 ${className}`}>
       <span className="min-w-0 truncate">
-        {t("signatureColon")}
-<span className="text-stone-700">{account}</span>
+        {/* The space is written, because JSX drops the one in the source
+            when a newline goes with it — so it read "Signature:you@…". */}
+        {t("signatureColon")}{" "}
+        <span className="text-stone-700">{account}</span>
       </span>
       <button
         type="button"

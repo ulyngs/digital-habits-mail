@@ -30,6 +30,17 @@ const MAIL_CONTROLS_WIDTH_KEY = "redd-plan-mail-controls-width";
 export const DEFAULT_LIST_WIDTH = 380;
 /** Normal list floor — below this, width snaps to the avatar rail. */
 export const MIN_LIST_WIDTH = 150;
+
+/**
+ * The least the reading pane is left with beside the list.
+ *
+ * Enforced while the divider is dragged, and again whenever the window
+ * changes size: a width that was reasonable on a wide screen is wider than
+ * the whole pane once the window is put on half of one, and the list is a
+ * fixed size that does not shrink — so it ran off the edge and took the
+ * reader with it.
+ */
+export const MIN_READER_WIDTH = 240;
 /**
  * Signal-style avatar rail. Sized for a centered h-9 avatar + a little chrome
  * padding; not meant for free resize between this and MIN_LIST_WIDTH.
@@ -372,7 +383,7 @@ export function useMailListWidth(options: {
       const startWidth = width < MIN_LIST_WIDTH ? lastNormalWidthRef.current : width;
       const shell = (event.currentTarget as HTMLElement).parentElement;
       const available = shell?.clientWidth ?? window.innerWidth;
-      const maxWidth = Math.max(MIN_LIST_WIDTH, available - 240);
+      const maxWidth = Math.max(MIN_LIST_WIDTH, available - MIN_READER_WIDTH);
       const clamp = (raw: number) =>
         Math.min(maxWidth, Math.max(MIN_LIST_WIDTH, raw));
 
@@ -563,8 +574,35 @@ export function useMailListPlacement(): MailListPlacement {
   return placement;
 }
 const MAIL_ZOOM_KEY = "redd-plan-mail-zoom";
-export const MIN_ZOOM = 0.5;
-export const MAX_ZOOM = 2;
+/*
+ * How far the reader's text size goes.
+ *
+ * Half size is smaller than anybody reads at and twice is bigger than
+ * anybody reads at; both ends were room the gesture had to travel through.
+ * These two are the sizes a reader actually stops at.
+ */
+export const MIN_ZOOM = 0.7;
+export const MAX_ZOOM = 1.8;
+
+/**
+ * How much of the range a pinch covers.
+ *
+ * macOS reports a pinch as a stream of small magnifications, and a
+ * comfortable one — fingers together to spread — adds up to about 1.0 to
+ * 2.0. Mapped straight through, as this was, that is the whole of a range
+ * a single unit wide in one movement: the reader arrives at an end without
+ * having aimed for it, and has to creep back.
+ *
+ * A seventh puts a full pinch at about a sixth of the range: enough that
+ * one gesture is worth making, little enough that the reader stops where
+ * they aimed. Raise it to make the zoom livelier.
+ *
+ * NOTE while working on this: the listeners are attached in an effect keyed
+ * on the pane, so editing this number does not reach a running window —
+ * hot reload re-renders but does not re-attach. Reload the window to feel a
+ * change.
+ */
+const PINCH_DAMPING = 0.15;
 /** The round numbers the buttons and the keys move between. */
 const ZOOM_STEP = 0.1;
 
@@ -596,13 +634,32 @@ export function useMailZoom(): [number, (delta: number) => void] {
   React.useEffect(() => {
     try {
       const stored = Number.parseFloat(localStorage.getItem(MAIL_ZOOM_KEY) ?? "");
-      if (Number.isFinite(stored) && stored >= MIN_ZOOM && stored <= MAX_ZOOM) {
-        setZoom(stored);
+      // Clamped rather than refused: a reader who was at 200% before the
+      // range narrowed wants the biggest there now is, not to be put back
+      // to 100% for having liked their mail large.
+      if (Number.isFinite(stored)) {
+        setZoom(Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, stored)));
       }
     } catch {
       /* private mode */
     }
   }, []);
+
+  /*
+    Remembered after the gesture, not during it.
+
+    A pinch arrives as tens of events a second and each one wrote the new
+    size to disk. Writing is synchronous, so the writes landed between the
+    reader's fingers and the screen — the zoom lagged the hand. The last
+    size to settle is the one worth keeping, so it is kept a beat later.
+  */
+  const saveTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  React.useEffect(
+    () => () => {
+      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    },
+    []
+  );
 
   const adjust = React.useCallback((delta: number) => {
     setZoom((current) => {
@@ -611,11 +668,14 @@ export function useMailZoom(): [number, (delta: number) => void] {
         MAX_ZOOM,
         Math.max(MIN_ZOOM, Math.round((current + delta) * 1000) / 1000)
       );
-      try {
-        localStorage.setItem(MAIL_ZOOM_KEY, String(next));
-      } catch {
-        /* private mode */
-      }
+      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = setTimeout(() => {
+        try {
+          localStorage.setItem(MAIL_ZOOM_KEY, String(next));
+        } catch {
+          /* private mode */
+        }
+      }, 250);
       return next;
     });
   }, []);
@@ -627,7 +687,6 @@ export function useMailZoom(): [number, (delta: number) => void] {
  * as the +/− controls.
  *
  * - Chromium: ctrl+wheel
- * - Cmd held while scrolling, on any engine
  * - Safari / WKWebView: gesturestart/gesturechange (and sometimes ctrl+wheel)
  * - Email iframes: forwarded via MAIL_PINCH_* from EmailHtmlView
  * - Tauri Mac app: native NSEvent magnify also dispatches MAIL_PINCH_SCALE_EVENT
@@ -649,17 +708,16 @@ export function usePinchZoom(
   React.useEffect(() => {
     if (!enabled) return;
 
-    // Continuous zoom: pinch movement maps straight onto the zoom value
-    // (no stepping). ~400 wheel units span one full zoom unit.
+    // Continuous zoom: pinch movement maps onto the zoom value, no
+    // stepping. See PINCH_DAMPING for how far a gesture goes.
     const applyWheel = (deltaY: number) => {
       if (!Number.isFinite(deltaY) || deltaY === 0) return;
-      onAdjustRef.current(-deltaY * 0.0025);
+      onAdjustRef.current(-deltaY * 0.0025 * PINCH_DAMPING);
     };
 
-    // WebKit gesture / native magnify: a 10% pinch maps to a 0.1 zoom change.
     const applyScaleRatio = (ratio: number) => {
       if (!Number.isFinite(ratio) || ratio <= 0) return;
-      onAdjustRef.current(ratio - 1);
+      onAdjustRef.current((ratio - 1) * PINCH_DAMPING);
     };
 
     // An attachment preview that zooms itself is up: every pinch is its.
@@ -686,9 +744,15 @@ export function usePinchZoom(
     };
 
     const onWheel = (e: WheelEvent) => {
-      // Ctrl is what a trackpad pinch reports. Cmd is what a reader holds to
-      // zoom, the same as every other Mac app that scales its content.
-      if (!e.ctrlKey && !e.metaKey) return; // plain scrolling
+      /*
+        Ctrl only, which is what a trackpad pinch reports.
+
+        Cmd used to zoom as well, and it is one binding too many: a pinch
+        does it, and so does Ctrl and the wheel. What Cmd mostly did was
+        zoom the reader when somebody meant to scroll with a hand still on
+        the key from the shortcut before it.
+      */
+      if (!e.ctrlKey) return; // plain scrolling
       if (!eventOverPane(e)) return;
       e.preventDefault(); // keep the browser from zooming the whole page
       applyWheel(e.deltaY);

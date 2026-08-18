@@ -146,10 +146,11 @@ export function SendLaterMenu({
             {t("set")}
           </button>
         </div>
-        {/* The one thing a reader has to be able to trust about this. */}
+        {/* The one thing a reader has to be able to trust about this. Said
+            in the same words as the toast that follows, and not "this Mac":
+            the standalone app runs on Windows too. */}
         <p className="px-2.5 pb-1.5 pt-1 text-[11px] leading-snug text-stone-400">
-          Outlook holds the message and sends it. This Mac does not have to be
-          on.
+          {t("outlookHoldsIt")}
         </p>
       </MailPopoverContent>
     </Popover>

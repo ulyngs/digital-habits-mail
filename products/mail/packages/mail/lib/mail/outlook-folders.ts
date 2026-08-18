@@ -58,6 +58,7 @@ export type OutlookFolder = {
  * them refuse a drop.
  */
 const SYSTEM_SHOWN = new Map<string, MailFolderRole>([
+  ["inbox", "inbox"],
   ["archive", "archive"],
   ["drafts", "drafts"],
   ["sentitems", "sent"],
@@ -67,10 +68,15 @@ const SYSTEM_SHOWN = new Map<string, MailFolderRole>([
 /**
  * Managed folders the list leaves out, but which keep their children.
  *
- * The inbox is the list itself, so a row for it would be a second way into
- * the thing already on screen — but people do file real folders under it.
+ * The inbox was one of these: the list beside the rail is the inbox, so a
+ * row for it read as a second way into what was already on screen — while
+ * the folders people file under it still had to be shown. That left a
+ * stand-in heading with a name and nothing behind it, which could not be
+ * opened, dropped onto, or told apart from a folder that had gone missing.
+ * It is a folder on the mailbox, like Archive and Sent, and it is listed
+ * as one.
  */
-const SYSTEM_KEEP_CHILDREN = new Set(["inbox", "msgfolderroot"]);
+const SYSTEM_KEEP_CHILDREN = new Set(["msgfolderroot"]);
 
 /** Managed folders whose whole subtree is noise. */
 const SYSTEM_HIDE_SUBTREE = new Set([

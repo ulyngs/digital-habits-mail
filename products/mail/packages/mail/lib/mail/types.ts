@@ -4,6 +4,22 @@ import type { MailChatRef } from "@/lib/mail/chat-types";
 
 export type MailTab = "people" | "other";
 
+/**
+ * Something to do to a conversation that only the reader can do.
+ *
+ * The right-click menu on a list row offers every action the reader's own
+ * strip offers, and these five need the messages themselves — to quote, to
+ * carry, to lay out, to seed a window with. A row holds a summary, so the
+ * list opens the thread and names the action; the reader does it once the
+ * messages are in. See `pendingAction` in ThreadPane.
+ */
+export type MailThreadAction =
+  | "reply"
+  | "replyAll"
+  | "forward"
+  | "print"
+  | "popOut";
+
 export type { MailChatRef };
 
 export type MailThreadSummary = {

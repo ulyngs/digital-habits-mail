@@ -38,12 +38,18 @@ export function ZoomControls({
   };
 
   return (
-    <div className="flex shrink-0 items-center gap-0.5 rounded-full border border-stone-200 bg-white px-1.5 py-1">
+    // Its own border and no fill: on the dark theme `bg-white` becomes a
+    // card, and this is a pill on the toolbar rather than a thing on it.
+    // `mail-chrome-strip`: the − and + are written as text, so a double
+    // click anywhere near the pill used to select one of them. The pill
+    // travels — the reader, a draft, the settings panel — and it carries
+    // the rule with it. See mail.css.
+    <div className="mail-chrome-strip flex shrink-0 items-center gap-0.5 rounded-full border border-[var(--mail-field-border)] px-1.5 py-1">
       <button
         type="button"
         aria-label={t("smallerText")}
         title={t("smallerText")}
-        className="rounded-full px-1 text-[15px] leading-none text-stone-500 hover:bg-stone-100 hover:text-stone-800 disabled:opacity-40"
+        className="rounded-full px-1 text-[15px] leading-none text-[var(--mail-action-2-icon)] hover:bg-[var(--mail-action-2-hover)] hover:text-[var(--mail-action-2-fg)] disabled:opacity-40"
         disabled={zoom <= MIN_ZOOM}
         onClick={() => onAdjust(nextZoomStop(zoom, -1) - zoom)}
       >
@@ -60,7 +66,7 @@ export function ZoomControls({
         The box the size is typed into sits in that same cell, so the row
         does not change width when it opens.
       */}
-      <span className="grid text-[11px] tabular-nums text-stone-400">
+      <span className="grid text-[11px] tabular-nums text-[var(--mail-action-2-icon)]">
         <span className="invisible col-start-1 row-start-1" aria-hidden>
           100%
         </span>
@@ -69,7 +75,7 @@ export function ZoomControls({
             type="button"
             aria-label={`Text size ${percent}%. Click to type a size.`}
             title={t("typeASize")}
-            className="col-start-1 row-start-1 text-center hover:text-stone-700"
+            className="col-start-1 row-start-1 text-center hover:text-[var(--mail-action-2-fg)]"
             onClick={() => setTyped(String(percent))}
           >
             {percent}%
@@ -93,7 +99,7 @@ export function ZoomControls({
             */
             size={1}
             value={typed}
-            className="col-start-1 row-start-1 w-full min-w-0 bg-transparent text-center tabular-nums text-stone-700 outline-none"
+            className="col-start-1 row-start-1 w-full min-w-0 bg-transparent text-center tabular-nums text-[var(--mail-action-2-fg)] outline-none"
             onChange={(e) => setTyped(e.target.value)}
             onFocus={(e) => e.currentTarget.select()}
             // Leaving the box is as much an answer as pressing Enter.
@@ -116,7 +122,7 @@ export function ZoomControls({
         type="button"
         aria-label={t("biggerText")}
         title={t("biggerText")}
-        className="rounded-full px-1 text-[15px] leading-none text-stone-500 hover:bg-stone-100 hover:text-stone-800 disabled:opacity-40"
+        className="rounded-full px-1 text-[15px] leading-none text-[var(--mail-action-2-icon)] hover:bg-[var(--mail-action-2-hover)] hover:text-[var(--mail-action-2-fg)] disabled:opacity-40"
         disabled={zoom >= MAX_ZOOM}
         onClick={() => onAdjust(nextZoomStop(zoom, 1) - zoom)}
       >

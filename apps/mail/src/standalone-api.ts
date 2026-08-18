@@ -29,6 +29,7 @@ import {
 import { countActiveSnoozes } from "@/lib/mail/mail-snooze-count";
 import {
   createMailFolder,
+  deleteMailFolder,
   listMailFolders,
   renameMailFolder,
   moveMailThreadToFolder,
@@ -314,6 +315,24 @@ export async function handleStandaloneMailApi(
             clerkUserId: OWNER_ID,
           });
           return ok({ folder });
+        }
+        if (method === "DELETE") {
+          const input = await body<{ name?: string; account?: string }>();
+          if (!input.name?.trim()) {
+            return failed("A folder name is required", 400);
+          }
+          // Named account only, the way the rename is: a row in the rail
+          // stands under one heading, and means that mailbox's folder.
+          // The two providers differ in what deleting means, and the core
+          // knows which is which — Gmail takes a label off its
+          // conversations and leaves them in All Mail, Graph moves the
+          // folder into Deleted Items with everything inside it.
+          const deleted = await deleteMailFolder({
+            name: input.name,
+            account: input.account,
+            clerkUserId: OWNER_ID,
+          });
+          return ok(deleted);
         }
         if (method !== "GET") {
           return failed(`${method} on folders is not built yet`, 501);

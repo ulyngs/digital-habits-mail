@@ -74,10 +74,64 @@ html[data-dh-os="windows"] .mail-titlebar {
   }
 }
 
+/* Scrollbars that keep out of the way, as they do on a Mac.
+
+   WKWebView draws the system's overlay scrollbars: they lie over the
+   content and fade away when nothing is moving. WebView2 is Chromium, and
+   draws the classic kind — a bar that stands there for as long as there is
+   anything to scroll, in a gutter of its own. That is why the folder rail
+   and the thread list each carried a pale rule down the right.
+
+   The gutter stays; only the bar in it is hidden. Keeping the gutter is
+   what stops a list from reflowing every time a bar arrives. `scrollbars.ts`
+   marks whatever is being scrolled, and unmarks it a moment after it stops.
+
+   Every element, not only the ones in the mail shell, so that a menu or a
+   dialog drawn into a portal is held to the same rule.
+
+   Windows only. On a Mac, asking for a scrollbar colour at all is what
+   turns an overlay scrollbar into a classic one, which is the thing this
+   rule exists to undo. */
+html[data-dh-os="windows"],
+html[data-dh-os="windows"] * {
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+
+/* The fallback is for a scroller outside the mail shell, where the chrome
+   tokens are not in scope: a grey that carries on either theme. */
+html[data-dh-os="windows"] [data-dh-scrolling] {
+  scrollbar-color: var(--mail-chrome-faint, rgba(140, 140, 140, 0.7))
+    transparent;
+}
+
 .dh-window-controls,
 .dh-window-controls button {
   -webkit-app-region: no-drag;
   app-region: no-drag;
+}
+
+/* The window buttons are drawn in the colour of the strip they stand on.
+
+   They have to be told it. The buttons are a sibling of the interface, not
+   a part of it — they are fixed over the top of the whole page — so they
+   are outside `.mail-shell`, which is where the chrome colours are set.
+   Asking for `--mail-chrome-fg` out here got the fallback every time: a
+   near-black glyph, which is right on the cream chrome and all but
+   invisible on the navy one.
+
+   The same two values as the dark chrome in products/mail/.../mail.css.
+   `main.tsx` keeps `data-theme` on <html> in step with the setting. */
+.dh-window-controls {
+  --mail-chrome-fg: #1c1917;
+  --mail-chrome-hover: rgb(244 241 236);
+  --mail-chrome-active: rgb(231 229 228);
+}
+
+html[data-theme="dark"] .dh-window-controls {
+  --mail-chrome-fg: #f5f0e8;
+  --mail-chrome-hover: rgba(255, 255, 255, 0.06);
+  --mail-chrome-active: rgba(255, 255, 255, 0.12);
 }
 
 /* A control inside the strip must still be clickable. */

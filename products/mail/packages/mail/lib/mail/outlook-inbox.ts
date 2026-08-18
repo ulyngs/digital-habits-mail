@@ -49,6 +49,8 @@ import {
   isOwnPersonalAddress,
   normalizeEmail,
 } from "@/lib/own-addresses";
+import { dedupeMessagesByRfcId } from "@/lib/mail/thread-copies";
+import { sentFromThisMailbox } from "@/lib/mail/reply-target";
 import { crmLogoUrlIfLoaded } from "@/lib/mail/crm-gate";
 import type { ContactIndex, CrmRecordRef } from "@/lib/crm-contact-index";
 import { getMailSignatureSettings } from "@/lib/mail/settings";
@@ -509,8 +511,13 @@ export async function getOutlookMailThread(
     throw new PlanError("Conversation not found", 404);
   }
 
-  const messages = await Promise.all(
-    rawMessages.map((m) => graphMessageToMailMessage(token, account, m))
+  // Sent Items and the Inbox both hold the reader's own cc'd copy, and the
+  // conversation is queried across the whole mailbox — see the note on
+  // `dedupeMessagesByRfcId`.
+  const messages = dedupeMessagesByRfcId(
+    await Promise.all(
+      rawMessages.map((m) => graphMessageToMailMessage(token, account, m))
+    )
   );
 
   // Reply targets the true conversation tip, not the middle of a deep-link window.
@@ -526,9 +533,14 @@ export async function getOutlookMailThread(
   const lastCc = last
     ? graphAddresses(last.ccRecipients).map((p) => p.email)
     : [];
-  const sentByUs = lastFrom.email
-    ? isSelfAddress(lastFrom.email, account)
-    : false;
+  // Not "from an address of mine" — from *this* mailbox. See the note on
+  // `sentFromThisMailbox`; the difference is a thread with yourself.
+  const sentByUs = sentFromThisMailbox({
+    from: lastFrom.email,
+    account,
+    to: lastTo,
+    cc: lastCc,
+  });
   const accountKey = normalizeEmail(account);
 
   const recipients = (items: string[]) => {

@@ -12,10 +12,39 @@
 
 import { utf8ToBase64Url } from "@/lib/base64";
 
-/** The scheme the shell registered. */
-export const MAIL_IMAGE_CSP_SOURCE = "dhmail:";
+/**
+ * Where the shell answers — which is not the same address on both systems.
+ *
+ * A scheme registered with Tauri is reached at `dhmail://localhost/…` on a
+ * Mac, and at `http://dhmail.localhost/…` on Windows, where WebView2 can only
+ * intercept http. The Mac address was written here for both, so on Windows
+ * every remote image asked for a scheme the webview does not know, and drew a
+ * broken frame in place of the picture.
+ *
+ * The shell answers on the path either way — see `address_from_path` in
+ * products/mail/crates/mail-native/src/images.rs — so only the address in
+ * front of it changes, and the policy that has to admit it.
+ *
+ * Read the way `main.tsx` reads it: `userAgentData` is separate from the user
+ * agent string the window is configured with, and WKWebView does not
+ * implement it at all, so a missing answer is a Mac.
+ */
+const SCHEME = "dhmail";
 
-const PREFIX = "dhmail://localhost/";
+const onWindows =
+  typeof navigator !== "undefined" &&
+  (
+    navigator as Navigator & { userAgentData?: { platform?: string } }
+  ).userAgentData?.platform?.toLowerCase() === "windows";
+
+/** What the message frame's `img-src` must allow. */
+export const MAIL_IMAGE_CSP_SOURCE = onWindows
+  ? `http://${SCHEME}.localhost`
+  : `${SCHEME}:`;
+
+const PREFIX = onWindows
+  ? `http://${SCHEME}.localhost/`
+  : `${SCHEME}://localhost/`;
 
 function toNative(remote: string): string {
   const trimmed = remote.trim();

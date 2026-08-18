@@ -56,6 +56,22 @@ read it:
   <em>A thread popped out on its own, staying above whatever else you are working in.</em>
 </p>
 
+![The same mailbox grouped by person, with everything open with one correspondent on a single page](apps/mail/docs/screenshots/by-person.png)
+
+<p align="center">
+  <em>Grouped by person instead of by thread. Everything still open with one
+  correspondent sits on one page, and what can be done to all of it at once
+  is said in words above it.</em>
+</p>
+
+![Writing a message, with the formatting controls in one row under the text](apps/mail/docs/screenshots/compose.png)
+
+<p align="center">
+  <em>Writing a message. The six controls worth a click sit in one row; font,
+  size, colour and highlight wait behind the Aa, where they are out of the way
+  of the writing.</em>
+</p>
+
 ## How it works
 
 A macOS app that reads Gmail and Outlook directly from the machine it runs on.

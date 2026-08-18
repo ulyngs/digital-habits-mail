@@ -373,10 +373,53 @@ export function ChatPopout({
       el.scrollTop = el.scrollHeight;
     };
     pin();
+    /*
+      The messages and the window they are read through.
+ 
+      Watching the messages alone left the view short of the end whenever
+      the other half moved: the box at the bottom grows as its signature,
+      its attachments and its own toolbar arrive, and every pixel it takes
+      is a pixel off the height of the scroll — which is not a change to
+      the messages, so nothing asked for the view to be put back. The
+      window being resized does the same thing.
+    */
     const observer = new ResizeObserver(pin);
     observer.observe(content);
-    return () => observer.disconnect();
+    observer.observe(el);
+    window.addEventListener("resize", pin);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", pin);
+    };
   }, [collapsed]);
+
+  /**
+   * And again whenever the conversation itself changes.
+   *
+   * The observer above is the general answer and it is the right one, but
+   * it is the browser's to call, and a window that is still being put on
+   * screen is exactly where a browser holds those back. This asks directly
+   * — after the messages have been laid out, and once more on the next
+   * frame for the heights that arrive with them.
+   *
+   * The reader still owns the scroll: once they have taken hold, none of
+   * this moves it.
+   */
+  React.useLayoutEffect(() => {
+    if (collapsed) return;
+    const pin = () => {
+      const el = scrollRef.current;
+      if (!el || readerScrolledRef.current) return;
+      el.scrollTop = el.scrollHeight;
+    };
+    pin();
+    const frame = requestAnimationFrame(pin);
+    const settle = window.setTimeout(pin, 120);
+    return () => {
+      cancelAnimationFrame(frame);
+      window.clearTimeout(settle);
+    };
+  }, [collapsed, messages.length, thread?.threadId]);
 
   /**
    * Give the message back to the thread, and go.

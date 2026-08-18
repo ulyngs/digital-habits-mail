@@ -78,50 +78,13 @@ export function htmlHasRemoteImages(html: string): boolean {
 }
 
 /** Carries a mail link URL on a <span> so HTML5 parse cannot strip it. */
-const MAIL_HREF_ATTR = "data-dh-href";
+import {
+  MAIL_HREF_ATTR,
+  MAIL_PLAIN_LINK_ATTR,
+  softenAnchorsForParse,
+} from "@/lib/mail/soften-anchors";
 
-/**
- * Turn every <a href> into <span data-dh-href> before DOMParser runs.
- *
- * HTML5 forbids <a> wrapping a <table> (common in LinkedIn / marketing CTAs).
- * The parser hoists the table out and leaves an empty <a> — the visible
- * "View message" button then has no link. Spans may wrap tables, so the URL
- * survives; the iframe click handler opens data-dh-href via openExternalUrl.
- */
-export function softenAnchorsForParse(html: string): string {
-  const tagRe = /<\/a\s*>|<a\b([^>]*)>/gi;
-  let out = "";
-  let last = 0;
-  for (const match of html.matchAll(tagRe)) {
-    const index = match.index ?? 0;
-    out += html.slice(last, index);
-    if (/^<\/a/i.test(match[0])) {
-      out += "</span>";
-    } else {
-      const attrs = match[1] ?? "";
-      const hrefMatch = /\bhref\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/i.exec(
-        attrs
-      );
-      const href = hrefMatch?.[1] ?? hrefMatch?.[2] ?? hrefMatch?.[3] ?? "";
-      let rest = attrs.replace(
-        /\s*\bhref\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/i,
-        ""
-      );
-      rest = rest.replace(
-        /\s*\bdata-dh-href\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/i,
-        ""
-      );
-      const escaped = href
-        .replace(/&/g, "&amp;")
-        .replace(/"/g, "&quot;")
-        .replace(/</g, "&lt;");
-      out += `<span ${MAIL_HREF_ATTR}="${escaped}"${rest}>`;
-    }
-    last = index + match[0].length;
-  }
-  out += html.slice(last);
-  return out;
-}
+export { softenAnchorsForParse };
 
 /** @deprecated Use softenAnchorsForParse — kept for any older imports. */
 export function demoteNestedAnchors(html: string): string {
@@ -719,7 +682,20 @@ function buildSrcDoc(
     "<style>",
     // Prefer auto height (thread pane scrolls). Keep overflow-y auto as a
     // fallback if measurement still undershoots a marketing footer.
-    "html,body{margin:0;overflow-x:auto;overflow-y:auto}",
+    /*
+      No scrollbars in here. The frame is sized to its content and the
+      thread does the scrolling; a bar inside a message is a bar drawn
+      across the foot and up the right of every card, which is what it was
+      — two pale rules that no colour of ours could reach, because a
+      scrollbar is painted by the platform.
+
+      `overflow-x:auto` stays for a table wider than the pane, but its bar
+      is hidden too: it can be dragged sideways with a trackpad, and a
+      permanent gutter costs every message to serve the few that are wide.
+    */
+    "html,body{margin:0;overflow-x:auto;overflow-y:hidden;scrollbar-width:none}",
+    "html::-webkit-scrollbar,body::-webkit-scrollbar{width:0;height:0;display:none}",
+    ...(bodyColor ? ["html{color-scheme:dark}"] : []),
     `body{padding:12px 14px 20px;font:14px/1.5 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;color:${bodyColor ?? "#292524"};word-break:break-word;background:transparent}`,
     "img{max-width:100%;height:auto}",
     // A view with a ceiling of its own — the peek at the first message —
@@ -731,18 +707,26 @@ function buildSrcDoc(
       : []),
     // Softened mail CTAs (see softenAnchorsForParse) — keep button styling.
     `[${MAIL_HREF_ATTR}]{cursor:pointer;color:inherit;text-decoration:inherit}`,
-    // Reading in the dark. The caller has decided this message paints no
-    // page of its own (see `wordsInTheDark`), so the colours it declares
-    // for its words are all assumptions about a white one — ours included:
-    // everything we send is wrapped by the server in `color:#222`. They are
-    // overridden here, and a link keeps being a link by taking the theme's
-    // own link colour instead of the sender's blue-on-white.
-    ...(bodyColor
-      ? [
-          "p,div,span,td,th,li,ul,ol,blockquote,pre,h1,h2,h3,h4,h5,h6,strong,em,b,i,u,small,font{color:inherit!important}",
-          `[${MAIL_HREF_ATTR}]{color:#6aa9ea!important}`,
-        ]
-      : []),
+    /*
+      A link should look like one.
+
+      Two kinds reach this point unstyled. The bare addresses we found in
+      the text ourselves, which are still real anchors — every link the
+      sender wrote became a span above, so `a` can only be ours. And the
+      ones the sender wrote but never dressed, marked while softening.
+
+      Both get the teal the rest of the app underlines a link in, and
+      neither can reach a sender's button: that keeps whatever it was
+      given. After the rule above, so it wins on equal specificity.
+    */
+    `a,[${MAIL_PLAIN_LINK_ATTR}]{color:${
+      bodyColor ? "#5ecfbe" : "#0d7a6f"
+    };text-decoration:underline;text-underline-offset:2px}`,
+    // Reading in the dark: the body's own colour is the light one the
+    // caller passes, and every colour the sender declared is re-lit by
+    // `recolorEmailForDark` once the frame has laid out — see there. That
+    // used to be a blanket "everything inherits", which threw away a
+    // heading's navy and a call-out's pink along with the black.
     "</style>",
     "</head><body>",
     body,
@@ -784,19 +768,197 @@ function measureEmailFrameHeight(doc: Document): number {
     And whatever the frame says it can scroll.
 
     The rect walk above measures boxes; `scrollHeight` measures the whole
-    of what is laid out, zoom included, and it is the exact quantity that
-    decides whether a scrollbar appears. Taking the larger of the two is
-    what keeps one from appearing: the rect walk catches trailing margins
-    that scrollHeight rounds off, and scrollHeight catches everything the
-    rect walk cannot see — which, at any zoom but 100%, was the message.
+    of what is laid out, and it is the exact quantity that decides whether
+    a scrollbar appears. Taking the larger of the two is what keeps one
+    from appearing: the rect walk catches trailing margins that
+    scrollHeight rounds off, and scrollHeight catches everything the rect
+    walk cannot see.
+
+    The two are not read in the same units. The reader's size is a `zoom`
+    on the body, and `scrollHeight` on a zoomed element answers in that
+    element's own scale, while everything else here — the rects, the root,
+    the frame being sized — is in the frame's. Below 100% the body's
+    unscaled number is the larger of the two while being the shorter
+    distance, so it won every comparison and the frame came out as much
+    too tall as the reader had zoomed out: at 80%, a quarter of the
+    message again in empty space under the footer. At 100% the two agree,
+    which is why it only ever showed on one side of it.
   */
+  const bodyZoom = parseFloat(body.style.zoom) || 1;
   const scrolled = Math.max(
     doc.documentElement?.scrollHeight ?? 0,
-    body.scrollHeight ?? 0
+    (body.scrollHeight ?? 0) * bodyZoom
   );
 
+  const content = Math.max(bottom - bodyTop, scrolled);
+  /*
+    Nothing measured is not a short message.
+
+    A frame asked for its height before it has laid out answers zero, and
+    zero plus the slack below is six — small enough to look like a bug and
+    large enough to pass the `> 0` test that was meant to catch exactly
+    this. So the caller keeps the height it had and waits for the observer.
+  */
+  if (content <= 0) return 0;
+
   // Slack for sub-pixels and collapsed margins so the footer never clips.
-  return Math.max(0, Math.ceil(Math.max(bottom - bodyTop, scrolled) + 6));
+  return Math.ceil(content + 6);
+}
+
+/*
+ * Reading a sender's mail in the dark.
+ *
+ * A message is written for a white page. Its black words, its navy
+ * headings, its pale pink call-out box are all choices made against white,
+ * and putting them on a dark card as they are gives dark words on a dark
+ * card. The answer every mail client has settled on — Outlook, Apple Mail,
+ * Gmail — is not to protect the white page but to re-light the message:
+ * flip the light backgrounds dark, lift the dark text light, and leave
+ * alone the colours that already read either way.
+ *
+ * Done to the computed colours, from outside the frame, once it has laid
+ * out. Computed rather than declared, because a colour can arrive by
+ * `bgcolor=`, by inheritance, by a class in a `<style>` block, and the
+ * result is what matters. Written back inline with `!important`, which
+ * outranks anything the sender wrote.
+ *
+ * The rules, in HSL:
+ *
+ *   background, near-grey and light  → dark. White becomes the card's
+ *                                      shade, a light grey a step above it,
+ *                                      so a table with alternating rows
+ *                                      keeps its rows.
+ *   background, coloured and pale    → the same hue, dusky and dark: a pale
+ *                                      pink box becomes a deep rose one.
+ *   background, coloured and strong  → left. A brand's green band or blue
+ *                                      button is legible on anything and is
+ *                                      the sender's own mark.
+ *   text, dark                       → light, keeping the hue: black to
+ *                                      near-white, navy to a light blue.
+ *   text, mid grey                   → lifted, so a footnote is readable.
+ *   text, light                      → left; it was written for the coloured
+ *                                      band it sits on.
+ *   borders                          → as backgrounds.
+ *   pictures                         → untouched. A logo on a white PNG
+ *                                      stays a white PNG; so does Outlook's.
+ *
+ * A mail that carries its own dark styles — `prefers-color-scheme` in a
+ * style block, or a `color-scheme` meta — is left to them and not
+ * re-lit twice.
+ */
+
+type Hsl = { h: number; s: number; l: number; a: number };
+
+function parseCssColor(value: string): Hsl | null {
+  const m = value.match(/^rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)(?:[,\s/]+([\d.]+%?))?\s*\)$/i);
+  if (!m) return null;
+  const r = Number(m[1]) / 255;
+  const g = Number(m[2]) / 255;
+  const b = Number(m[3]) / 255;
+  let a = 1;
+  if (m[4] != null) a = m[4].endsWith("%") ? Number(m[4].slice(0, -1)) / 100 : Number(m[4]);
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const l = (max + min) / 2;
+  let h = 0;
+  let sat = 0;
+  if (max !== min) {
+    const d = max - min;
+    sat = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+    if (max === r) h = ((g - b) / d + (g < b ? 6 : 0)) / 6;
+    else if (max === g) h = ((b - r) / d + 2) / 6;
+    else h = ((r - g) / d + 4) / 6;
+  }
+  return { h, s: sat, l, a };
+}
+
+function hslToCss({ h, s, l, a }: Hsl): string {
+  const H = Math.round(h * 360);
+  const S = Math.round(s * 100);
+  const L = Math.round(l * 100);
+  return a < 1 ? `hsla(${H},${S}%,${L}%,${a})` : `hsl(${H},${S}%,${L}%)`;
+}
+
+/** The lightness the card is: what white becomes. */
+const DARK_PAGE_L = 0.16;
+
+function darkBackground(c: Hsl): Hsl | null {
+  if (c.a === 0) return null;
+  if (c.s < 0.28) {
+    // Near-grey. Only the light ones move; a dark grey box was already
+    // designed for the dark.
+    if (c.l < 0.55) return null;
+    // White → the page shade; light greys step up from it in the same
+    // order they stepped down from white, so stripes stay stripes.
+    return { ...c, s: Math.min(c.s, 0.12), l: DARK_PAGE_L + (1 - c.l) * 0.28 };
+  }
+  // Coloured. Pale tints — a pink call-out, a mint banner — go dusky and
+  // dark in the same hue; strong colours are the sender's own and stay.
+  if (c.l >= 0.72) return { ...c, s: c.s * 0.5, l: 0.24 + (1 - c.l) * 0.35 };
+  return null;
+}
+
+function darkText(c: Hsl): Hsl | null {
+  if (c.a === 0) return null;
+  if (c.s < 0.3) {
+    // Grey words. Near-black goes near-white; a mid grey — a footnote, a
+    // timestamp — is unreadable on a dark card at the lightness it was
+    // given for a white one, and comes up too.
+    if (c.l <= 0.45) return { ...c, l: Math.max(0.88, 1 - c.l) };
+    if (c.l < 0.66) return { ...c, l: 0.74 };
+    return null;
+  }
+  // Coloured words: a navy heading, the blue of a link. Lightness alone
+  // undersells how dark a saturated blue is — pure #0000ee is L 0.47 and
+  // all but invisible on navy — so anything under 0.6 comes up to a light
+  // tint of its own hue, and keeps it.
+  if (c.l < 0.6) return { ...c, s: Math.min(c.s, 0.75), l: Math.max(0.74, 1 - c.l) };
+  return null;
+}
+
+function darkBorder(c: Hsl): Hsl | null {
+  if (c.a === 0) return null;
+  if (c.s < 0.3 && c.l >= 0.5) return { ...c, s: Math.min(c.s, 0.1), l: 0.32 };
+  return null;
+}
+
+/** Elements whose colours are their own business. */
+const RECOLOR_SKIP = new Set(["IMG", "SVG", "VIDEO", "CANVAS", "PICTURE", "SOURCE", "SCRIPT", "STYLE"]);
+
+export function recolorEmailForDark(doc: Document): void {
+  const win = doc.defaultView;
+  if (!win || !doc.body) return;
+  // A mail that already knows about the dark is left to its own styles.
+  const declares =
+    doc.querySelector('meta[name="color-scheme"]') != null ||
+    [...doc.querySelectorAll("style")].some((s) => /prefers-color-scheme\s*:\s*dark/i.test(s.textContent ?? ""));
+  if (declares) {
+    doc.documentElement.style.setProperty("color-scheme", "dark");
+    return;
+  }
+  const all = doc.body.querySelectorAll<HTMLElement>("*");
+  for (const el of all) {
+    if (RECOLOR_SKIP.has(el.tagName)) continue;
+    // Inside an SVG the tag names are lower-case and the colours are fills.
+    if (el.namespaceURI && el.namespaceURI !== "http://www.w3.org/1999/xhtml") continue;
+    const cs = win.getComputedStyle(el);
+    const bg = parseCssColor(cs.backgroundColor);
+    if (bg) {
+      const next = darkBackground(bg);
+      if (next) el.style.setProperty("background-color", hslToCss(next), "important");
+    }
+    const fg = parseCssColor(cs.color);
+    if (fg) {
+      const next = darkText(fg);
+      if (next) el.style.setProperty("color", hslToCss(next), "important");
+    }
+    // Only a border that is actually drawn.
+    if (cs.borderTopStyle !== "none" && parseFloat(cs.borderTopWidth) > 0) {
+      const bc = parseCssColor(cs.borderTopColor);
+      const next = bc && darkBorder(bc);
+      if (next) el.style.setProperty("border-color", hslToCss(next), "important");
+    }
+  }
 }
 
 /** Window events that re-emit pinch gestures happening inside email iframes. */
@@ -1223,6 +1385,7 @@ export function EmailHtmlView({
   imageMaxHeight,
   bodyColor,
   onContentDoubleClick,
+  darkRecolor = false,
 }: {
   html: string;
   allowImages: boolean;
@@ -1254,11 +1417,15 @@ export function EmailHtmlView({
   zoom?: number;
   /** Fired for dblclick on the email body (not on links). */
   onContentDoubleClick?: () => void;
+  /** Re-light the sender's colours for a dark card. See recolorEmailForDark. */
+  darkRecolor?: boolean;
 }) {
   const t = useMailT();
   const iframeRef = React.useRef<HTMLIFrameElement>(null);
   const onDblClickRef = React.useRef(onContentDoubleClick);
   onDblClickRef.current = onContentDoubleClick;
+  const darkRecolorRef = React.useRef(darkRecolor);
+  darkRecolorRef.current = darkRecolor;
   const zoomRef = React.useRef(zoom);
   zoomRef.current = zoom;
   const [height, setHeight] = React.useState(140);
@@ -1312,6 +1479,9 @@ export function EmailHtmlView({
     return () => window.removeEventListener("message", onMessage);
   }, []);
 
+  /** Asks for a measurement on the next frame; set up in `initDoc`. */
+  const scheduleMeasureRef = React.useRef<(() => void) | null>(null);
+
   /** Documents already wired up — a frame is set up once, however we reach it. */
   const initedDocsRef = React.useRef<WeakSet<Document>>(new WeakSet());
   const observerRef = React.useRef<ResizeObserver | null>(null);
@@ -1323,28 +1493,69 @@ export function EmailHtmlView({
     initedDocsRef.current.add(doc);
 
     doc.body.style.zoom = String(zoomRef.current);
+    // Before anything is measured or shown: the recolour changes no
+    // geometry, but the reader should never see the white version first.
+    if (darkRecolorRef.current) recolorEmailForDark(doc);
     const measure = () => {
+      /*
+        Collapsed first, then measured.
+
+        A mail with `height:100%` on its wrapper — a table, a body wrapper,
+        an Outlook shell — is as tall as the frame it is given. Measure it
+        in the frame we last sized, and the answer is that frame; set that
+        as the height and the next measurement is bigger again. A message
+        of two lines ended up hundreds of pixels tall, clamped, with a
+        "show the whole message" button under an acre of nothing.
+
+        At nought the percentage has nothing to be a percentage of, so what
+        is left is the content's own height. The frame is put back before
+        anything is painted.
+
+        Two forced layouts, so it is not done sixty times a second: a pinch
+        changes the zoom on every event, each change resizes the body, and
+        the observer below answers each resize. That put four reflows per
+        frame between the reader's fingers and the screen. Once per frame
+        is enough — see `scheduleMeasure`.
+      */
+      const frame = iframeRef.current;
+      const held = frame?.style.height ?? "";
+      if (frame) frame.style.height = "0px";
       // Prefer content bounds (incl. trailing margins) over body.rect alone so
       // the frame keeps its height across content swaps (e.g. images toggle)
       // without clipping marketing footers.
       const next = measureEmailFrameHeight(doc);
+      if (frame) frame.style.height = held;
       if (next > 0) setHeight(next);
     };
+    let queued = 0;
+    const scheduleMeasure = () => {
+      if (queued) return;
+      queued = requestAnimationFrame(() => {
+        queued = 0;
+        measure();
+      });
+    };
+    scheduleMeasureRef.current = scheduleMeasure;
+
     measure();
     setReady(true);
-    requestAnimationFrame(measure);
+    scheduleMeasure();
     // Late layout shifts (e.g. images arriving after the reveal) resize the frame.
     observerRef.current?.disconnect();
     if (typeof ResizeObserver !== "undefined") {
-      const observer = new ResizeObserver(measure);
+      const observer = new ResizeObserver(scheduleMeasure);
       observer.observe(doc.body);
       observer.observe(doc.documentElement);
+      // Not the frame itself. Watching it from the outside was what fed
+      // the width back into its own measure — see the latch in `measure`.
+      // The pane not having laid out on the first pass is answered there
+      // instead, by not recording an answer until there is a frame.
       observerRef.current = observer;
     }
     for (const img of doc.images) {
       if (img.complete) continue;
-      img.addEventListener("load", measure, { once: true });
-      img.addEventListener("error", measure, { once: true });
+      img.addEventListener("load", scheduleMeasure, { once: true });
+      img.addEventListener("error", scheduleMeasure, { once: true });
     }
     attachPinchForwarding(doc);
     attachKeyForwarding(doc);
@@ -1434,31 +1645,13 @@ export function EmailHtmlView({
     if (!doc?.body) return;
     doc.body.style.zoom = String(zoom);
     /*
-      Measured again once the frame has laid out at the new size.
-
-      Reading the rect in the same tick as the zoom hands back the geometry
-      from before it, so the frame kept a height the words no longer fit
-      in — and, since the frame scrolls as a fallback, the message got a
-      scrollbar of its own inside the bubble. Nothing in here should ever
-      scroll: the thread does that.
-
-      Twice over, because a picture or a table can settle a frame later
-      than the first one after the change.
+      Measured again once the frame has laid out at the new size — reading
+      the rect in the same tick as the zoom hands back the geometry from
+      before it, and the words would no longer fit the height.
     */
-    const apply = () => {
-      const next = measureEmailFrameHeight(doc);
-      if (next > 0) setHeight(next);
-    };
-    apply();
-    let second = 0;
-    const first = requestAnimationFrame(() => {
-      apply();
-      second = requestAnimationFrame(apply);
-    });
-    return () => {
-      cancelAnimationFrame(first);
-      if (second) cancelAnimationFrame(second);
-    };
+    // Through the queue: a pinch lands tens of these a second, and each one
+    // measuring on the spot is what made the zoom lag the fingers.
+    scheduleMeasureRef.current?.();
   }, [zoom]);
 
   return (
@@ -1486,7 +1679,15 @@ export function EmailHtmlView({
         }
         style={{
           height: ready ? height : 140,
-          colorScheme: "light",
+          /*
+            The frame's own scheme, which decides two things the mail does
+            not: what colour the canvas behind it is, and what colour the
+            scrollbars are. Pinned to light, a re-lit message got a pale
+            gutter along the foot and the right edge of every card — a
+            light rule under the words, from the one part of the frame the
+            recolour cannot reach.
+          */
+          colorScheme: darkRecolor ? "dark" : "light",
           zoom: 1 / zoom,
         }}
       />

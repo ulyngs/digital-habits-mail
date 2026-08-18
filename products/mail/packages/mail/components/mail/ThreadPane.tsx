@@ -19,11 +19,14 @@ import {
   Loader2,
   Maximize2,
   Minimize2,
+  FolderInput,
   MoreHorizontal,
   PictureInPicture2,
+  Pin,
   Printer,
   Reply,
   ReplyAll,
+  RotateCwFadingClock,
   SendHorizontal,
   ShieldCheck,
   Sparkles,
@@ -89,6 +92,7 @@ import {
 } from "@/lib/mail/shortcuts";
 import { useMailShortcuts } from "@/lib/mail/use-mail-shortcuts";
 import { MoveToFolderMenu } from "@/components/mail/MailFolders";
+import { oneInvitePerMessage } from "@/lib/mail/ics";
 import {
   RecipientField,
   SaveAsListControl,
@@ -99,6 +103,10 @@ import {
   type SignatureSettings,
 } from "@/components/mail/SignatureDialog";
 import { SendLaterMenu } from "@/components/mail/SendLaterMenu";
+import {
+  COMPOSER_TOOLBAR_BUTTON,
+  TextStyleMenu,
+} from "@/components/mail/TextStyleMenu";
 import { sendWithUndo } from "@/components/mail/undo-send";
 import {
   formatSnoozeWakeLabel,
@@ -197,6 +205,7 @@ import type {
   MailAttachment,
   MailMessage,
   MailScheduledMessage,
+  MailThreadAction,
   MailThreadDetail,
 } from "@/lib/mail/types";
 import { mailSay, useMailT } from "@/lib/mail/i18n";
@@ -217,6 +226,25 @@ import { cn } from "@/lib/utils";
  * the padding around them come to about this. Below it they wrapped.
  */
 const THREAD_ACTIONS_MIN_WIDTH = 480;
+
+/**
+ * What makes a message the same message across two pages.
+ *
+ * The provider's item id is not it. Cc'd to yourself, Exchange holds two
+ * items with one Message-ID, and the server folds them — but the two are
+ * seconds apart, so a page boundary can fall between them and hand the
+ * second one back on the next page as something new. The id it shares with
+ * its twin is the one to compare.
+ */
+function messageKey(m: { id: string; rfcMessageId?: string }): string {
+  return m.rfcMessageId?.trim().toLowerCase() || m.id;
+}
+
+function messageKeys(
+  messages: { id: string; rfcMessageId?: string }[]
+): Set<string> {
+  return new Set(messages.map(messageKey));
+}
 
 /** The always-there controls, once the row has folded: Aa, clip, emoji. */
 const COMPOSER_CIRCLE_CLASS =
@@ -254,17 +282,47 @@ const NEAR_LATEST_PX = 120;
  *
  * Below this, the four that are about looking at the thread rather than
  * doing anything to it — print, pop out, text size, focus mode — go
- * behind an ellipsis. The ones that act on the mail stay out.
+ * behind an ellipsis, and so do pin and move to folder, which are done
+ * once to a conversation and then not again. The rest stay out.
  */
 const TOOLBAR_MIN_WIDTH = 640;
+
+/**
+ * Where even the quick actions have to give way.
+ *
+ * A pane this narrow is a column beside something else, and what is left
+ * out on it has to earn the room: answering the mail, and getting it off
+ * the screen. Read and snooze follow the others behind the ellipsis, which
+ * leaves reply, forward, archive and delete — and the invitations chip,
+ * which was being pushed off the end.
+ */
+const TOOLBAR_TIGHT_WIDTH = 520;
 
 /** The secondary reply actions: a labelled button, or a circle with a name
  *  on hover once there is no room for the label. */
 /* No light island: Reply and Forward are our own words on our own buttons,
    with no email in them, so they take the theme like the rest of the chrome.
-   As a light island they were two white slabs at the foot of a dark pane. */
-const threadActionClass =
-  "inline-flex shrink-0 items-center gap-2 rounded-xl border border-stone-200 bg-white px-5 py-2.5 text-[15px] font-semibold text-stone-800 hover:bg-stone-50";
+   As a light island they were two white slabs at the foot of a dark pane.
+
+   Named colours rather than stone classes, because the theme's blanket
+   rewrites are what put those white slabs there: `bg-white` inside a light
+   subtree stays white however dark the page is. These say what they are,
+   and each theme says it once — see --mail-action in mail.css. */
+const threadActionBase =
+  "inline-flex shrink-0 items-center gap-2 rounded-full border px-5 py-2.5 text-[15px] font-semibold";
+/** Reply: the one pressed nearly every time, and the only one with a fill. */
+const threadActionClass = cn(
+  threadActionBase,
+  "border-[var(--mail-action-border)] bg-[var(--mail-action)] text-[var(--mail-action-fg)] hover:bg-[var(--mail-action-hover)]"
+);
+/** An icon on its own in that row: the outline, and a quieter mark in it. */
+const threadActionIconClass =
+  "inline-flex shrink-0 items-center justify-center rounded-full border border-[var(--mail-action-2-border)] bg-[var(--mail-action-2)] p-2.5 text-[var(--mail-action-2-icon)] hover:bg-[var(--mail-action-2-hover)] disabled:opacity-50";
+/** Reply all and Forward: an outline, so Reply is the one the eye lands on. */
+const threadActionSecondaryClass = cn(
+  threadActionBase,
+  "border-[var(--mail-action-2-border)] bg-[var(--mail-action-2)] text-[var(--mail-action-2-fg)] hover:bg-[var(--mail-action-2-hover)]"
+);
 const circleActionClass = "h-11 w-11 justify-center rounded-full px-0";
 
 const POPOUT_HAND_BACK_POLL_MS = 120;
@@ -369,7 +427,7 @@ function ThreadParticipants({
  *
  * "You" stands in for every own address — the mailboxes connected here, and
  * whoever sent the messages marked as ours — and says which they were:
- * "You (ulrik@a.com, ulrik@b.com)". Own is not one address, and the header
+ * "You (you@work.example, you@home.example)". Own is not one address, and
  * is the one place to see which of yours a thread ran through.
  */
 function threadPeople(
@@ -479,6 +537,8 @@ export function ThreadPane({
   inJunk = false,
   forwardMessageId,
   onForwardStarted,
+  pendingAction,
+  onPendingActionDone,
   onMoveToFolder,
   folders,
   onSnooze,
@@ -487,6 +547,7 @@ export function ThreadPane({
   onToggleUnread,
   unread = false,
   onTogglePin,
+  pinned = false,
   refreshToken,
   messageCount,
   inCrm,
@@ -532,6 +593,9 @@ export function ThreadPane({
   /** A forward asked for from a chat popout — see MailPage. */
   forwardMessageId?: string;
   onForwardStarted?: () => void;
+  /** Something the list's right-click menu asked for — see the effect. */
+  pendingAction?: MailThreadAction;
+  onPendingActionDone?: () => void;
   onMoveToFolder: (folderName: string, create: boolean) => Promise<void>;
   folders: MailFolder[];
   onSnooze: (untilIso: string) => void;
@@ -547,6 +611,8 @@ export function ThreadPane({
   unread?: boolean;
   /** Pin the thread to the top of the list, or take it back down. */
   onTogglePin?: () => void;
+  /** Whether it is pinned, so the action on the strip can say so. */
+  pinned?: boolean;
   /** Newest-message timestamp from the list; a change means new mail arrived. */
   refreshToken?: string;
   /** Message count from the list row — a short thread loads in one Gmail call. */
@@ -1258,8 +1324,10 @@ export function ThreadPane({
           setOlderParts((parts) => {
             if (!parts.length) return parts;
             const [first, ...rest] = parts;
-            const seen = new Set(first.messages.map((m) => m.id));
-            const older = json.thread.messages.filter((m) => !seen.has(m.id));
+            const seen = messageKeys(first.messages);
+            const older = json.thread.messages.filter(
+              (m) => !seen.has(messageKey(m))
+            );
             if (!older.length) {
               return [{ ...first, hasOlder: false }, ...rest];
             }
@@ -1275,8 +1343,10 @@ export function ThreadPane({
         } else {
           setThread((current) => {
             if (!current) return current;
-            const seen = new Set(current.messages.map((m) => m.id));
-            const older = json.thread.messages.filter((m) => !seen.has(m.id));
+            const seen = messageKeys(current.messages);
+            const older = json.thread.messages.filter(
+              (m) => !seen.has(messageKey(m))
+            );
             if (!older.length) {
               return { ...current, hasOlder: false };
             }
@@ -1357,8 +1427,10 @@ export function ThreadPane({
       );
       setThread((current) => {
         if (!current) return current;
-        const seen = new Set(current.messages.map((m) => m.id));
-        const newer = json.thread.messages.filter((m) => !seen.has(m.id));
+        const seen = messageKeys(current.messages);
+        const newer = json.thread.messages.filter(
+          (m) => !seen.has(messageKey(m))
+        );
         if (!newer.length) {
           return { ...current, hasNewer: false };
         }
@@ -1924,6 +1996,7 @@ export function ThreadPane({
   const compactThreadActions =
     paneWidth > 0 && paneWidth < THREAD_ACTIONS_MIN_WIDTH;
   const compactToolbar = paneWidth > 0 && paneWidth < TOOLBAR_MIN_WIDTH;
+  const tightToolbar = paneWidth > 0 && paneWidth < TOOLBAR_TIGHT_WIDTH;
   const narrowBubbles =
     paneWidth > 0 && paneWidth < BUBBLE_GUTTER_MIN_WIDTH;
   /**
@@ -3099,7 +3172,11 @@ export function ThreadPane({
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(entry.request),
         });
-        toast.success(`Sends ${formatSnoozeWakeLabel(sendAt)}`);
+        // See the composer: say where it waits, not only when it goes.
+        toast.success(
+          mailSay("sendsWhen", { when: formatSnoozeWakeLabel(sendAt) }),
+          { description: mailSay("outlookHoldsIt") }
+        );
         closeComposer();
         // Twice: the message is held as a draft, and Exchange takes a moment
         // to have it. The first look usually finds it; the second is for
@@ -3447,6 +3524,45 @@ export function ThreadPane({
     forwardMessage(forwardMessageId);
     onForwardStarted?.();
   }, [forwardMessageId, thread, olderParts, forwardMessage, onForwardStarted]);
+
+  /**
+   * An action the list asked for, carried out once the thread is here.
+   *
+   * The right-click menu on a row offers everything this strip does, and
+   * five of those need the messages: a reply quotes them, a forward carries
+   * them, printing lays them out, a pop-out seeds its window with them. A
+   * row holds a summary and no messages at all, so the list opens the
+   * thread and hands the action here — the same way a pop-out asks for a
+   * forward it has no composer for.
+   *
+   * Waits for the thread rather than firing on the request, and reports
+   * back so the request is not acted on twice.
+   */
+  React.useEffect(() => {
+    if (!pendingAction || !thread) return;
+    onPendingActionDone?.();
+    switch (pendingAction) {
+      case "reply":
+        startReply(false);
+        break;
+      case "replyAll":
+        startReply(true);
+        break;
+      case "forward":
+        startForward();
+        break;
+      case "print":
+        printThread();
+        break;
+      case "popOut":
+        popOutThread();
+        break;
+    }
+    // The handlers are rebuilt on nearly every render — see the shortcut
+    // listener below, which keeps its own list empty for the same reason.
+    // What decides this is the request and whether the thread has arrived.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingAction, thread]);
 
   React.useEffect(() => {
     skipOpenPinRef.current = false;
@@ -3915,7 +4031,7 @@ export function ThreadPane({
         {/* Cream action strip. Slightly tighter than the New email row.
             Pull left over the w-2 resize gutter so cream meets the list
             border — only this band, not the full-height sidebar chrome. */}
-        <div className="relative z-[1] -ml-2 w-[calc(100%+0.5rem)] border-b border-[var(--mail-chrome-border)] bg-[var(--mail-chrome)] pt-1.5">
+        <div className="mail-chrome-strip relative z-[1] -ml-2 w-[calc(100%+0.5rem)] border-b border-[var(--mail-thread-chrome-line)] bg-[var(--mail-thread-chrome)] pt-1.5">
           <div className="flex h-10 w-full items-center gap-1 pl-7 pr-5">
           <ThreadAction
             label={`${t("actionReply")} (${formatShortcut(
@@ -3925,16 +4041,25 @@ export function ThreadPane({
             className={mode === "reply" ? THREAD_ACTION_ACTIVE_CLASS : undefined}
             onClick={() => startReply(false)}
           />
-          <ThreadAction
-            label={`${t("actionReplyAll")} (${formatShortcut(
-              shortcuts.replyAll
-            )})`}
-            icon={ReplyAll}
-            className={
-              mode === "replyAll" ? THREAD_ACTION_ACTIVE_CLASS : undefined
-            }
-            onClick={() => startReply(true)}
-          />
+          {/* Only where it reaches somebody Reply does not — the same rule
+              the buttons at the foot of the thread follow, and the same
+              one Gmail follows. A mail from one person to you alone has
+              nobody for it to add, so the strip was offering a second way
+              to do exactly what Reply does. It stays while a reply-all is
+              being written, so the button that opened the composer does
+              not vanish out from under it. */}
+          {showReplyAll || mode === "replyAll" ? (
+            <ThreadAction
+              label={`${t("actionReplyAll")} (${formatShortcut(
+                shortcuts.replyAll
+              )})`}
+              icon={ReplyAll}
+              className={
+                mode === "replyAll" ? THREAD_ACTION_ACTIVE_CLASS : undefined
+              }
+              onClick={() => startReply(true)}
+            />
+          ) : null}
           <ThreadAction
             label={`${t("actionForward")} (${formatShortcut(
               shortcuts.forward
@@ -3949,35 +4074,71 @@ export function ThreadPane({
             aria-hidden
             className="mx-1.5 h-5 w-px shrink-0 bg-[var(--mail-chrome-border)]"
           />
-          <ThreadAction
-            label={`${t(unread ? "markAsRead" : "markAsUnread")} (${formatShortcut(
-              shortcuts.toggleUnread
-            )})`}
-            icon={MailDotIcon}
-            onClick={onToggleUnread}
-          />
-          <SnoozeMenu
-            onSnooze={onSnooze}
-            onCancelSnooze={onCancelSnooze}
-            currentUntil={snoozedUntil}
-            openSignal={snoozeMenuSignal}
-            title={`${t("actionSnooze")} (${formatShortcut(
-              shortcuts.snooze
-            )})`}
-          />
+          {/* Read and snooze go behind the ellipsis too once the pane is
+              really narrow — see `tightToolbar`. What is left out here is
+              answering the mail and getting it off the screen. */}
+          {tightToolbar ? null : (
+            <>
+              <ThreadAction
+                label={`${t(
+                  unread ? "markAsRead" : "markAsUnread"
+                )} (${formatShortcut(shortcuts.toggleUnread)})`}
+                icon={MailDotIcon}
+                onClick={onToggleUnread}
+              />
+              <SnoozeMenu
+                onSnooze={onSnooze}
+                onCancelSnooze={onCancelSnooze}
+                currentUntil={snoozedUntil}
+                openSignal={snoozeMenuSignal}
+                title={`${t("actionSnooze")} (${formatShortcut(
+                  shortcuts.snooze
+                )})`}
+              />
+            </>
+          )}
+          {/* Beside snooze, because the two are the same question asked
+              the other way round: one puts a conversation out of the way
+              until later, the other keeps it in the way until it is done.
+              A filled teal pin is the only thing here that says it is
+              already on — the rest of the strip does something each time
+              it is pressed, and this one is a state. */}
+          {/* Pin and Move to folder go under the ellipsis as soon as the
+              pane is tight, along with print and the rest. Both are things
+              done once to a conversation and then not again — unlike read,
+              snooze, archive and delete, which are what a narrow pane is
+              usually being used to do quickly. See `compactToolbar`. */}
+          {onTogglePin && !compactToolbar ? (
+            <ThreadAction
+              label={`${t(pinned ? "unpin" : "pinToTop")} (${formatShortcut(
+                shortcuts.togglePin
+              )})`}
+              icon={Pin}
+              /* The accent, which is the one colour that is the same teal
+                 in both themes — see --mail-accent. */
+              className={
+                pinned
+                  ? "text-[var(--mail-accent)] [&_svg]:fill-current"
+                  : undefined
+              }
+              onClick={onTogglePin}
+            />
+          ) : null}
           <span
             aria-hidden
             className="mx-1.5 h-5 w-px shrink-0 bg-[var(--mail-chrome-border)]"
           />
-          <MoveToFolderMenu
-            folders={folders}
-            onMoved={onMoveToFolder}
-            onMoveToJunk={onJunk}
-            openSignal={moveMenuSignal}
-            title={`${t("moveToFolder")} (${formatShortcut(
-              shortcuts.moveToFolder
-            )})`}
-          />
+          {compactToolbar ? null : (
+            <MoveToFolderMenu
+              folders={folders}
+              onMoved={onMoveToFolder}
+              onMoveToJunk={onJunk}
+              openSignal={moveMenuSignal}
+              title={`${t("moveToFolder")} (${formatShortcut(
+                shortcuts.moveToFolder
+              )})`}
+            />
+          )}
           <ThreadAction
             label={`${t("actionArchive")} (${formatShortcut(
               shortcuts.archive
@@ -4058,7 +4219,19 @@ export function ThreadPane({
                 ...olderParts.flatMap((p) => p.messages),
                 ...thread.messages,
               ].flatMap((m) =>
-                (m.attachments ?? []).map((attachment) => ({
+                /*
+                  One invitation per message, however many times it was
+                  sent.
+
+                  A meeting mail carries the same event twice: once as the
+                  `text/calendar` part the mail is, and once as the
+                  `invite.ics` file attached to it. Both are calendar
+                  attachments, so a single acceptance counted as two
+                  invitations up here — while the message below it drew one
+                  card, because the card takes the first and ignores the
+                  rest. This counts what the reader can actually show.
+                */
+                oneInvitePerMessage(m.attachments).map((attachment) => ({
                   messageId: m.id,
                   attachment,
                 }))
@@ -4075,6 +4248,16 @@ export function ThreadPane({
                 onPrint={printThread}
                 onPopOut={popOutThread}
                 onToggleFocus={onToggleFocus}
+                pinned={pinned}
+                onTogglePin={onTogglePin}
+                unread={unread}
+                onToggleUnread={tightToolbar ? onToggleUnread : undefined}
+                onSnooze={onSnooze}
+                onCancelSnooze={onCancelSnooze}
+                snoozedUntil={snoozedUntil}
+                folders={folders}
+                onMoveToFolder={onMoveToFolder}
+                onMoveToJunk={onJunk}
                 printLabel={`${t("actionPrint")} (${formatShortcut(
                   shortcuts.print
                 )})`}
@@ -4108,7 +4291,7 @@ export function ThreadPane({
             strip above it, so the shadow reaches the mail list instead of
             stopping eight pixels short of it. pl-10 rather than pl-8 puts
             the subject back where it was after the pull. */}
-        <div className="mail-thread-header relative z-10 -ml-2 w-[calc(100%+0.5rem)] min-w-0 bg-[var(--mail-thread)] pb-2 pl-10 pr-8 pt-2.5">
+        <div className="mail-thread-header relative z-10 -ml-2 w-[calc(100%+0.5rem)] min-w-0 border-b border-[var(--mail-thread-chrome-line)] bg-[var(--mail-thread-chrome)] pb-2 pl-10 pr-8 pt-2.5">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <h2 className="font-serif text-lg font-bold text-stone-900">
               {headerTitle}
@@ -4229,7 +4412,11 @@ export function ThreadPane({
               </Popover>
             ) : null}
           </div>
-          <p className="mt-0.5 flex flex-wrap items-center gap-1 text-xs text-stone-500">
+          {/* Its own colour, because the two themes want two answers —
+              see `--mail-thread-meta`. Small type on cream needs the
+              contrast; the same step on navy would make this line as loud
+              as the subject above it. */}
+          <p className="mt-0.5 flex flex-wrap items-center gap-1 text-xs text-[var(--mail-thread-meta)]">
             {/*
               A circular arrives with the whole club on it, and that is a
               list worth keeping — the same list the composer offers to save
@@ -4563,14 +4750,19 @@ export function ThreadPane({
          */
         <div
           className={cn(
-            "flex items-center justify-end border-t border-stone-200 bg-[var(--mail-thread)] py-3",
+            "flex items-center justify-end border-t border-[var(--mail-thread-chrome-line)] bg-[var(--mail-thread-chrome)] py-3",
             compactThreadActions ? "gap-2 px-4" : "gap-3 px-8"
           )}
         >
           <button
             type="button"
             title={`${t("actionReply")} (${formatShortcut(shortcuts.reply)})`}
-            className="mail-light-surface inline-flex shrink-0 items-center gap-2 rounded-xl border border-stone-200 bg-white px-5 py-2.5 text-[15px] font-semibold text-stone-800 hover:bg-stone-50"
+            /* The same class as its neighbours, which is what it was
+               written out to be — with `mail-light-surface`, and that is
+               what kept it a white slab on a dark pane while Reply all and
+               Forward beside it took the theme. There is no email in this
+               button; it is our own word on our own chrome. */
+            className={threadActionClass}
             onClick={() => startReply(false)}
           >
             <Reply className="h-4 w-4" />
@@ -4583,7 +4775,10 @@ export function ThreadPane({
                 shortcuts.replyAll
               )})`}
               aria-label={t("actionReplyAll")}
-              className={cn(threadActionClass, compactThreadActions && circleActionClass)}
+              className={cn(
+                threadActionSecondaryClass,
+                compactThreadActions && circleActionClass
+              )}
               onClick={() => startReply(true)}
             >
               <ReplyAll className="h-4 w-4" />
@@ -4596,7 +4791,10 @@ export function ThreadPane({
               shortcuts.forward
             )})`}
             aria-label={t("actionForward")}
-            className={cn(threadActionClass, compactThreadActions && circleActionClass)}
+            className={cn(
+              threadActionSecondaryClass,
+              compactThreadActions && circleActionClass
+            )}
             onClick={startForward}
           >
             <Forward className="h-4 w-4" />
@@ -4604,6 +4802,7 @@ export function ThreadPane({
           </button>
           <EmojiReactionButton
             disabled={sending}
+            className={cn(threadActionIconClass, "[&_svg]:h-5 [&_svg]:w-5")}
             onPick={(emoji) => void sendQuickReply(emoji)}
           />
         </div>
@@ -4612,7 +4811,7 @@ export function ThreadPane({
       {mode ? (
         <div
           className={cn(
-            "border-t border-stone-200 bg-[var(--mail-thread)] py-4",
+            "border-t border-[var(--mail-thread-chrome-line)] bg-[var(--mail-thread-chrome)] py-4",
             /* Edge to edge at this width, all but the right: the box was
                ending exactly where the window does, and the words in it
                ran up to the glass. The left has the list beside it to
@@ -5021,6 +5220,18 @@ export function ThreadPane({
                 {compactComposer ? null : (
                   <div id="mail-reply-toolbar">
                     <span className="ql-formats">
+                      {/* Neither this nor the Aa carries a ql- class, so
+                          Quill passes over both: they are in the row for the
+                          look of it, and reach the editor through the
+                          handle. In the compact row there is no toolbar to
+                          stand in, so the emoji button is rendered below
+                          instead, as a circle beside the other two. */}
+                      <EmojiPickerButton
+                        className={COMPOSER_TOOLBAR_BUTTON}
+                        onPick={(emoji) =>
+                          replyEditorHandle.current?.insertText(emoji)
+                        }
+                      />
                       <button className="ql-bold" aria-label={t("bold")} />
                       <button className="ql-italic" aria-label={t("italic")} />
                       <button
@@ -5038,6 +5249,10 @@ export function ThreadPane({
                         aria-label={t("numberedList")}
                       />
                       <button className="ql-link" aria-label={t("link")} />
+                      <TextStyleMenu
+                        editorHandle={replyEditorHandle}
+                        className={COMPOSER_TOOLBAR_BUTTON}
+                      />
                     </span>
                   </div>
                 )}
@@ -5048,17 +5263,17 @@ export function ThreadPane({
                   disabled={sending}
                   className={compactComposer ? COMPOSER_CIRCLE_CLASS : undefined}
                 />
-                <EmojiPickerButton
-                  onPick={(emoji) => replyEditorHandle.current?.insertText(emoji)}
-                  className={
-                    compactComposer
-                      ? cn(
-                          COMPOSER_CIRCLE_CLASS,
-                          "items-center justify-center [&_svg]:h-4 [&_svg]:w-4"
-                        )
-                      : undefined
-                  }
-                />
+                {compactComposer ? (
+                  <EmojiPickerButton
+                    onPick={(emoji) =>
+                      replyEditorHandle.current?.insertText(emoji)
+                    }
+                    className={cn(
+                      COMPOSER_CIRCLE_CLASS,
+                      "items-center justify-center [&_svg]:h-4 [&_svg]:w-4"
+                    )}
+                  />
+                ) : null}
                 <AttachmentSizeSummary
                   count={attachItems.length}
                   totalBytes={attachTotalBytes}
@@ -5105,7 +5320,7 @@ export function ThreadPane({
                     aria-label={
                       t(forwarding ? "discardForward" : "discardReply")
                     }
-                    className="rounded p-1 text-stone-500 hover:bg-stone-100 hover:text-stone-800"
+                    className="mail-composer-discard rounded p-1 text-stone-500"
                     onClick={discardComposer}
                   >
                     <Trash2 className="h-4 w-4" />
@@ -5610,7 +5825,7 @@ function PopoutStrip({
     <div
       ref={ref}
       tabIndex={-1}
-      className="flex items-center gap-1.5 border-t border-stone-200 bg-[var(--mail-thread)] px-8 py-3 text-[13px] text-stone-500 outline-none"
+      className="flex items-center gap-1.5 border-t border-[var(--mail-thread-chrome-line)] bg-[var(--mail-thread-chrome)] px-8 py-3 text-[13px] text-[var(--mail-thread-muted)] outline-none"
     >
       <PictureInPicture2 className="h-4 w-4 shrink-0" aria-hidden />
       <span>{t("answeringInPopout")}</span>
@@ -5654,6 +5869,16 @@ function ThreadToolbarOverflow({
   onPrint,
   onPopOut,
   onToggleFocus,
+  pinned,
+  onTogglePin,
+  unread,
+  onToggleUnread,
+  onSnooze,
+  onCancelSnooze,
+  snoozedUntil,
+  folders,
+  onMoveToFolder,
+  onMoveToJunk,
   printLabel,
   popOutLabel,
 }: {
@@ -5663,6 +5888,19 @@ function ThreadToolbarOverflow({
   onPrint: () => void;
   onPopOut: () => void;
   onToggleFocus: () => void;
+  /** Off the strip while the pane is tight — see where this is used. */
+  pinned: boolean;
+  onTogglePin?: () => void;
+  unread: boolean;
+  /** Given only on the narrowest panes, where read and snooze fold in too. */
+  onToggleUnread?: () => void;
+  onSnooze: (untilIso: string) => void;
+  onCancelSnooze?: () => void;
+  snoozedUntil?: string;
+  folders: MailFolder[];
+  onMoveToFolder: (folderName: string, create: boolean) => Promise<void>;
+  /** Junk is a move, so it is pinned above the folders — not its own row. */
+  onMoveToJunk?: () => void;
   printLabel: string;
   popOutLabel: string;
 }) {
@@ -5688,7 +5926,97 @@ function ThreadToolbarOverflow({
           <MoreHorizontal />
         </Button>
       </PopoverTrigger>
-      <MailPopoverContent align="end" className="w-56 p-1">
+      <MailPopoverContent
+        align="end"
+        className="w-56 p-1"
+        /* The folder and snooze menus open out of rows in here, and their
+           cards are portalled out of this one — so this card is told that a
+           press in one of them is not a press outside itself. Without it the
+           folder list appeared and this closed underneath it, taking the
+           list with it. The same arrangement the settings panel makes for
+           the mark menu. */
+        onInteractOutside={(e) => {
+          const el = e.target;
+          if (
+            el instanceof Element &&
+            el.closest("[data-mail-move-menu], [data-mail-snooze-menu]")
+          ) {
+            e.preventDefault();
+          }
+        }}
+      >
+        {onToggleUnread ? (
+          <button type="button" className={row} onClick={pick(onToggleUnread)}>
+            <MailDotIcon
+              className="h-4 w-4 shrink-0 text-stone-400"
+              aria-hidden
+            />
+            {t(unread ? "markAsRead" : "markAsUnread")}
+          </button>
+        ) : null}
+        {onToggleUnread ? (
+          <SnoozeMenu
+            onSnooze={(untilIso) => {
+              setOpen(false);
+              onSnooze(untilIso);
+            }}
+            onCancelSnooze={
+              onCancelSnooze
+                ? () => {
+                    setOpen(false);
+                    onCancelSnooze();
+                  }
+                : undefined
+            }
+            currentUntil={snoozedUntil}
+            title={t("actionSnooze")}
+            trigger={
+              <button type="button" className={row}>
+                <RotateCwFadingClock
+                  className="h-4 w-4 shrink-0 text-stone-400"
+                  aria-hidden
+                />
+                {t(snoozedUntil ? "changeSnoozeEllipsis" : "snoozeEllipsis")}
+              </button>
+            }
+          />
+        ) : null}
+        {onTogglePin ? (
+          <button type="button" className={row} onClick={pick(onTogglePin)}>
+            <Pin
+              className={cn(
+                "h-4 w-4 shrink-0",
+                pinned
+                  ? "fill-current text-[var(--mail-accent)]"
+                  : "text-stone-400"
+              )}
+              aria-hidden
+            />
+            {t(pinned ? "unpin" : "pinToTop")}
+          </button>
+        ) : null}
+        <MoveToFolderMenu
+          folders={folders}
+          onMoved={onMoveToFolder}
+          onMoveToJunk={
+            onMoveToJunk
+              ? () => {
+                  setOpen(false);
+                  onMoveToJunk();
+                }
+              : undefined
+          }
+          title={t("moveToFolder")}
+          trigger={
+            <button type="button" className={row}>
+              <FolderInput
+                className="h-4 w-4 shrink-0 text-stone-400"
+                aria-hidden
+              />
+              {t("moveToFolder")}
+            </button>
+          }
+        />
         <button type="button" className={row} onClick={pick(onPrint)}>
           <Printer className="h-4 w-4 shrink-0 text-stone-400" aria-hidden />
           {printLabel}

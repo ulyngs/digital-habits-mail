@@ -13,7 +13,6 @@ import * as React from "react";
 import { formatShortcut, shortcutMatchesEvent } from "@/lib/mail/shortcuts";
 import { useMailShortcuts } from "@/lib/mail/use-mail-shortcuts";
 import {
-  Check,
   ChevronDown,
   Maximize2,
   Minimize2,
@@ -39,6 +38,10 @@ import {
 import { FromAccountMenu } from "@/components/mail/FromAccountMenu";
 import { RecipientField } from "@/components/mail/RecipientField";
 import { SendLaterMenu } from "@/components/mail/SendLaterMenu";
+import {
+  COMPOSER_TOOLBAR_BUTTON,
+  TextStyleMenu,
+} from "@/components/mail/TextStyleMenu";
 import { sendWithUndo } from "@/components/mail/undo-send";
 import { useCanSendLater } from "@/lib/mail/use-outlook-accounts";
 import { formatSnoozeWakeLabel } from "@/components/mail/SnoozeMenu";
@@ -115,7 +118,6 @@ export function ComposeView({
   const t = useMailT();
   const [from, setFrom] = React.useState(accounts[0] ?? "");
   const canSendLater = useCanSendLater(from);
-  const [chatStyle, setChatStyle] = React.useState(false);
   const [toList, setToList] = React.useState<MailRecipient[]>(() =>
     seed?.to?.length ? recipientsFromEmails(seed.to) : []
   );
@@ -171,7 +173,6 @@ export function ComposeView({
   );
   const composeSnapshotRef = React.useRef({
     from,
-    chatStyle,
     toList,
     ccList,
     bccList,
@@ -184,7 +185,6 @@ export function ComposeView({
   });
   composeSnapshotRef.current = {
     from,
-    chatStyle,
     toList,
     ccList,
     bccList,
@@ -211,7 +211,6 @@ export function ComposeView({
         showCc: snapshot.showCc,
         showBcc: snapshot.showBcc,
         includeSignature: snapshot.includeSignature,
-        chatStyle: snapshot.chatStyle,
         attachments: readyAttachmentsForDraft(snapshot.attachItems),
         updatedAt: Date.now(),
       };
@@ -246,6 +245,7 @@ export function ComposeView({
     // one exception is a seed that names a draft to continue.
     if (seed && !seed.draftKey) {
       draftReadyRef.current = true;
+      placeCaret(Boolean(seed.subject?.trim()));
       return () => {
         cancelled = true;
         if (draftSaveTimerRef.current) {
@@ -267,7 +267,6 @@ export function ComposeView({
         // fresh key would leave the original behind and make two of it.
         draftKeyRef.current = loadKey;
         setFrom(raw.from || accounts[0] || "");
-        setChatStyle(raw.chatStyle);
         setToList(raw.toList);
         setCcList(raw.ccList);
         setBccList(raw.bccList);
@@ -281,6 +280,7 @@ export function ComposeView({
         sigTouchedRef.current = true;
       }
       draftReadyRef.current = true;
+      placeCaret(Boolean(raw?.kind === "compose" && raw.subject?.trim()));
     });
     return () => {
       cancelled = true;
@@ -311,7 +311,6 @@ export function ComposeView({
     };
   }, [
     from,
-    chatStyle,
     toList,
     ccList,
     bccList,
@@ -330,7 +329,7 @@ export function ComposeView({
       .then((s) => {
         if (cancelled) return;
         setSigSettings(s);
-        if (!sigTouchedRef.current && !chatStyle) {
+        if (!sigTouchedRef.current) {
           setIncludeSignature(s.includeOnNew);
         }
       })
@@ -338,7 +337,7 @@ export function ComposeView({
     return () => {
       cancelled = true;
     };
-  }, [from, chatStyle]);
+  }, [from]);
 
   const bodyText = htmlToPlainText(body);
   const flatTo = flattenRecipientsForSend(toList);
@@ -381,9 +380,7 @@ export function ComposeView({
       subject: subject.trim(),
       body: bodyText,
       html: bodyText.trim() ? bodyToEmailHtml(body) : undefined,
-      includeSignature: chatStyle ? false : includeSignature,
-      startChat: chatStyle || undefined,
-      noQuote: chatStyle || undefined,
+      includeSignature,
       attachments: attachments.length ? attachments : undefined,
       sendAt,
     });
@@ -402,9 +399,17 @@ export function ComposeView({
           headers: { "Content-Type": "application/json" },
           body: payload,
         });
-        toast.success(
-          sendAt ? `Sends ${formatSnoozeWakeLabel(sendAt)}` : "Sent"
-        );
+        if (sendAt) {
+          // Where it is waiting, not just when it goes. The whole point of
+          // handing the time to Exchange is that this machine can be shut,
+          // and a reader who does not know that will leave it running.
+          toast.success(
+            mailSay("sendsWhen", { when: formatSnoozeWakeLabel(sendAt) }),
+            { description: mailSay("outlookHoldsIt") }
+          );
+        } else {
+          toast.success(mailSay("sent"));
+        }
         onSent?.(from);
         // The key this composer writes under, which is not the shared one:
         // deleting that instead left the real draft behind after every send.
@@ -503,6 +508,31 @@ export function ComposeView({
   const toInputRef = React.useRef<HTMLInputElement | null>(null);
 
   /**
+   * Where the caret is when the card opens.
+   *
+   * The subject, on a message that has none. It is the first thing written
+   * and the card used to open with nothing focused at all, so the first
+   * words went to the page and were lost.
+   *
+   * A card opened on a stored draft, or on a seed that brought a subject
+   * with it, already has one — there the message is what is unfinished, so
+   * the caret goes into it instead of landing in the middle of a line
+   * somebody has already written.
+   *
+   * Asked for as a state, and done in the effect below, because what it
+   * has to land on may not be there yet: the draft arrives after the card,
+   * and loading one swaps the editor for a new one, which would take the
+   * focus off whatever had it.
+   */
+  const [caretGoesTo, setCaretGoesTo] = React.useState<
+    "subject" | "body" | null
+  >(null);
+  const placeCaret = React.useCallback(
+    (hasSubject: boolean) => setCaretGoesTo(hasSubject ? "body" : "subject"),
+    []
+  );
+
+  /**
    * Tab out of the subject goes on down the card.
    *
    * The heading shares its row with the focus-mode button, so that button
@@ -518,6 +548,36 @@ export function ComposeView({
     event.preventDefault();
     next.focus();
   };
+
+  /**
+   * Put the caret where the card asked for it, once there is something to
+   * put it in.
+   *
+   * Keyed on the editor as well, so a draft loading — which remounts it —
+   * is followed rather than lost. Cleared as soon as it lands, so nothing
+   * here steals the focus back from the reader afterwards.
+   */
+  React.useEffect(() => {
+    if (!caretGoesTo) return;
+    if (caretGoesTo === "subject") {
+      const el = subjectInputRef.current;
+      if (!el) return;
+      el.focus();
+      setCaretGoesTo(null);
+      return;
+    }
+    const editor = composeRef.current?.querySelector<HTMLElement>(".ql-editor");
+    if (!editor) return;
+    // Unless the reader got there first. The editor is a chunk of its own
+    // and can arrive late; by then the caret may be somewhere they put it.
+    const active = document.activeElement;
+    if (active && active !== document.body && composeRef.current?.contains(active)) {
+      setCaretGoesTo(null);
+      return;
+    }
+    editor.focus();
+    setCaretGoesTo(null);
+  }, [caretGoesTo, editorKey]);
 
   const cardShellRef = React.useRef<HTMLDivElement>(null);
   const [cardW, setCardW] = React.useState(720);
@@ -772,9 +832,7 @@ export function ComposeView({
                    and the panel scrolls once it outgrows the window. */
                 minHeight={120}
               />
-              {includeSignature &&
-              !chatStyle &&
-              sigSettings?.signature ? (
+              {includeSignature && sigSettings?.signature ? (
                 <ComposerSignature signature={sigSettings.signature} />
               ) : null}
               <DraftAttachmentChips
@@ -829,6 +887,15 @@ export function ComposeView({
                 </div>
                 <div id="mail-compose-toolbar">
                   <span className="ql-formats">
+                    {/* Neither this nor the Aa carries a ql- class, so Quill
+                        passes over both: they are in the row for the look of
+                        it, and reach the editor through the handle. */}
+                    <EmojiPickerButton
+                      className={COMPOSER_TOOLBAR_BUTTON}
+                      onPick={(emoji) =>
+                        editorHandle.current?.insertText(emoji)
+                      }
+                    />
                     <button className="ql-bold" aria-label={t("bold")} />
                     <button className="ql-italic" aria-label={t("italic")} />
                     <button className="ql-underline" aria-label={t("underline")} />
@@ -843,27 +910,30 @@ export function ComposeView({
                       aria-label={t("numberedList")}
                     />
                     <button className="ql-link" aria-label={t("link")} />
+                    <TextStyleMenu
+                      editorHandle={editorHandle}
+                      className={COMPOSER_TOOLBAR_BUTTON}
+                    />
                   </span>
                 </div>
                 <AttachToolbarButton
                   onPick={addAttachFiles}
                   disabled={sending}
                 />
-                <EmojiPickerButton
-                  onPick={(emoji) => editorHandle.current?.insertText(emoji)}
-                />
                 <AttachmentSizeSummary
                   count={attachItems.length}
                   totalBytes={attachTotalBytes}
                 />
-              </div>
-              <div className="flex flex-wrap items-center gap-3">
-                <span className="ml-auto flex items-start gap-3">
+                {/* One row, so the bin sits level with Send rather than on
+                    a line of its own under it — the reply box has looked
+                    like this since its second row emptied, and these two
+                    are the same thing twice. */}
+                <span className="ml-auto flex items-center gap-3">
                   <button
                     type="button"
                     title={t("discard")}
                     aria-label={t("discard")}
-                    className="rounded p-1 text-stone-400 hover:bg-stone-100 hover:text-stone-700"
+                    className="mail-composer-discard rounded p-1 text-stone-400"
                     onClick={discardCompose}
                   >
                     <Trash2 className="h-5 w-5" />
@@ -902,9 +972,22 @@ export function ComposeView({
               the message; the chat-style question is about what the mail
               is, not about typing it. In the footer they sat among the
               buttons that are, on a row already full. */}
-          <div className="mt-1.5 flex flex-wrap items-center gap-3">
-            {!chatStyle ? (
-              <SignatureMetaControls
+          <div
+            className="mx-auto mt-1.5 flex flex-wrap items-center gap-3"
+            /*
+              The same width as the card, so the row starts where the card
+              starts. The card is centred and resizable, and the row was
+              the full width of the pane under it — which put "Signature:"
+              out at the left edge of the window with the card's own edge
+              a couple of hundred pixels to the right of it.
+
+              `cardW * zoom` rather than the card's own width and zoom: the
+              card is drawn at the composer's text size and this row is not,
+              the same way the reply's row is outside its card's zoom.
+            */
+            style={{ width: cardW * zoom, maxWidth: "100%" }}
+          >
+            <SignatureMetaControls
                 account={from}
                 configured={Boolean(sigSettings?.signature)}
                 included={includeSignature}
@@ -918,43 +1001,24 @@ export function ComposeView({
                   sigTouchedRef.current = true;
                   setIncludeSignature(false);
                 }}
-              />
-            ) : null}
-            {!chatStyle ? (
-              <button
-                type="button"
-                className="text-xs text-stone-500 underline-offset-2 hover:text-stone-800 hover:underline"
-                onClick={() => setShowPreview(true)}
-              >
-                {t("preview")}
-              </button>
-            ) : null}
-            {/* The drawn box the reply uses, not an accented one: a filled
-                teal square would be the loudest thing on a line of quiet
-                grey. Both colours are turned over by the dark theme. */}
-            <label className="flex cursor-pointer items-center gap-1.5 text-xs text-stone-500 hover:text-stone-800">
-              <span className="relative inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center">
-                <input
-                  type="checkbox"
-                  className="peer h-3.5 w-3.5 appearance-none rounded-[3px] border border-stone-300 bg-white outline-none checked:border-stone-400 focus-visible:ring-2 focus-visible:ring-teal-600/40"
-                  checked={chatStyle}
-                  onChange={(e) => {
-                    const on = e.target.checked;
-                    setChatStyle(on);
-                    if (on) {
-                      sigTouchedRef.current = true;
-                      setIncludeSignature(false);
-                    }
-                  }}
-                />
-                <Check
-                  aria-hidden
-                  className="pointer-events-none absolute h-3 w-3 text-stone-700 opacity-0 peer-checked:opacity-100"
-                />
-              </span>
-              {t("chatStyle")}
-              <span className="text-stone-400">{t("doesNotQuoteHistory")}</span>
-            </label>
+            />
+            <button
+              type="button"
+              className="text-xs text-stone-500 underline-offset-2 hover:text-stone-800 hover:underline"
+              onClick={() => setShowPreview(true)}
+            >
+              {t("preview")}
+            </button>
+            {/*
+              No chat-style box here.
+
+              It said "does not quote the history", and a message that
+              starts a thread has no history to quote — so on this one
+              screen the words meant nothing. What it did was bind the new
+              thread as a chat, so that later replies would not quote; that
+              choice still exists, on the first reply, where "Quote
+              history" is a question about something real. See ThreadPane.
+            */}
           </div>
         </div>
 

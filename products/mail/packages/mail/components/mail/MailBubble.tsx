@@ -155,8 +155,8 @@ function MessageHoverActions({
         // Held open while its menu is, or picking from it would dismiss it.
         menuOpen && "pointer-events-auto opacity-100",
         own
-          ? "left-0 -translate-x-[calc(100%+2px)]"
-          : "right-0 translate-x-[calc(100%+2px)]"
+          ? "left-0 -translate-x-[calc(100%+1px)]"
+          : "right-0 translate-x-[calc(100%+1px)]"
       )}
     >
       {onReact ? (
@@ -397,32 +397,23 @@ export function MailBubble({
     : "";
 
   /**
-   * A message that can be read in the dark.
+   * A message read in the dark.
    *
-   * A sender's HTML is written for a white page, and the safe answer used
-   * to be to give it one — every message in a dark thread on its own lit
-   * slab. Most mail does not need that. A plain letter, from Gmail or from
-   * our own composer, is words in a `<div>` with no page of its own; what
-   * decides the colour is the frame, and the frame can as easily say light
-   * on dark. It is the mail that paints itself a page — a newsletter with
-   * its background colours and its table cells — that has to keep one,
-   * because our light words would land on its white.
+   * A sender's HTML is written for a white page. The first answer here was
+   * to give it one — every message on a lit slab, and later only the ones
+   * that painted a page of their own. But a page of one's own is what a
+   * newsletter is, and it is what most mail from a company is, so the
+   * reader turned the lights down and got a white rectangle for nearly
+   * everything anyone sent them.
    *
-   * So the test is for a painted background, not for colour of any kind.
-   * Declared text colours are handled instead: in this mode the frame
-   * overrides them, which it must, because everything we send is wrapped
-   * by the server in `color:#222` and a test for colour would have caught
-   * every message you ever wrote.
+   * What every other client does instead is re-light the message: dark
+   * words come up light, light backgrounds go down dark, and the colours
+   * that read either way are left. That is `recolorEmailForDark`, in the
+   * frame, and it means every HTML message sits on the card. There is no
+   * white sheet any more.
    */
   const colorMode = useMailColorMode();
-  const paintsItsOwnPage = React.useMemo(
-    () =>
-      /(?:^|[;"'\s])background(?:-color)?\s*:\s*(?!\s*(?:transparent|none|inherit|initial)\b)/i.test(
-        shownHtml
-      ) || /\bbgcolor\s*=/i.test(shownHtml),
-    [shownHtml]
-  );
-  const wordsInTheDark = colorMode === "dark" && showHtml && !paintsItsOwnPage;
+  const readInTheDark = colorMode === "dark" && showHtml;
 
   /**
    * Print this message alone.
@@ -502,17 +493,20 @@ export function MailBubble({
     : message.fromName || message.fromEmail;
   // Even own messages show the mailbox that actually sent them — mail from
   // another of our aliases must not masquerade as the connected account.
-  const meta = message.own
-    ? `${message.fromName || "You"} (${message.fromEmail || account})${
-        sendingOut || failedOut ? "" : ` · ${messageStamp(message.sentAt)}`
-      }`
-    : `${message.fromName} <${message.fromEmail}> · ${messageStamp(message.sentAt)}`;
-  const toLine = message.toEmails?.length
-    ? `To ${message.toEmails.join(", ")}`
-    : null;
-  const ccLine = message.ccEmails?.length
-    ? `Cc ${message.ccEmails.join(", ")}`
-    : null;
+  const fromEmail = message.fromEmail || (message.own ? account : "");
+  /**
+   * The name only when it says something the address does not.
+   *
+   * Mail from an address with no name against it arrived named by its own
+   * address, and the line read `someone@example.com (someone@example.com)`.
+   */
+  const fromLabel =
+    message.fromName &&
+    message.fromName.trim().toLowerCase() !== fromEmail.trim().toLowerCase()
+      ? `${message.fromName} <${fromEmail}>`
+      : fromEmail;
+  /** Nothing to stamp until it has gone. */
+  const stamp = sendingOut || failedOut ? "" : messageStamp(message.sentAt);
 
   const statusCaption = sendingOut ? (
     <div className="mt-1 flex items-center gap-1 px-1 text-[11px] text-stone-400">
@@ -584,8 +578,12 @@ export function MailBubble({
    * message. Most messages in most threads have neither, and then there is
    * no line at all.
    *
-   * `metaDetails` is everything — sender, address, time, To and Cc — and is
-   * shown only when the reader asks for it under the message's own menu.
+   * `metaDetails` is everything, one thing per line and each line labelled:
+   * when it was sent, who from, who to. Shown only when the reader asks for
+   * it under the message's own menu. It ran as one sentence before, which
+   * put the sender twice at the front — once as a name, once in brackets as
+   * the address it was named after — and left the reader to find the time
+   * at the end of it.
    */
   const changeNotes = [
     metaNeeds.added.length ? `Added ${metaNeeds.added.join(", ")}` : "",
@@ -604,7 +602,18 @@ export function MailBubble({
   const metaHeadline = [metaNeeds.sender ? senderLabel : "", ...changeNotes]
     .filter(Boolean)
     .join(" · ");
-  const metaDetails = [meta, toLine, ccLine].filter(Boolean).join("\n");
+  const metaDetails = [
+    stamp,
+    fromLabel ? `${t("fieldFromColon")} ${fromLabel}` : "",
+    message.toEmails?.length
+      ? `${t("fieldToColon")} ${message.toEmails.join(", ")}`
+      : "",
+    message.ccEmails?.length
+      ? `${t("fieldCcColon")} ${message.ccEmails.join(", ")}`
+      : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
   const canLoadImages =
     !loadImagesByDefault && showHtml && hasImages && !sendingOut && !failedOut;
   const showMetaRow =
@@ -621,6 +630,12 @@ export function MailBubble({
         : "from-[var(--mail-bubble-other)]";
 
   return (
+    // The row the message sits in, and what the pointer has to be on for
+    // the actions beside it to show. It used to be the bubble itself, which
+    // ends at the edge of the words: the gutter the actions stand in was
+    // outside it, and so was the hair of space between the two, so crossing
+    // to them dismissed them.
+    <div className="group/bubble flex w-full min-w-0">
     <div
       ref={bubbleRef}
       className={cn(
@@ -628,7 +643,7 @@ export function MailBubble({
         // wide panes and still eats too much of the narrow popout). A pane
         // too narrow to spare it says so with `.mail-thread-narrow`, which
         // takes the gutter down to a hair — see mail.css.
-        "mail-bubble-column group/bubble flex w-full min-w-0 max-w-[calc(100%-40px)] flex-col",
+        "mail-bubble-column flex w-full min-w-0 max-w-[calc(100%-40px)] flex-col",
         // Auto margins, not `self-end`. `self-*` needs a flex parent, and a
         // bubble is not always given one — in the chat window each sits in a
         // plain block, so an open message ignored it and hugged the left
@@ -699,10 +714,6 @@ export function MailBubble({
       <div
         className={cn(
           "rounded-2xl transition-[background-color,border-color,color] duration-200",
-          // The light island is for mail that paints its own page and would
-          // land our light words on its white. Everything else — plain text,
-          // and HTML that only writes words — goes dark with the pane.
-          showHtml && !wordsInTheDark && "mail-bubble-surface",
           // One corner tighter, on the speaker's own side. It is barely a
           // shape at all, and it is enough to say who is talking without a
           // tail or a name over every message.
@@ -718,7 +729,7 @@ export function MailBubble({
             !failedOut &&
             (message.own
               ? "border border-[var(--mail-bubble-own-border)] bg-[var(--mail-bubble-own)]"
-              : "border border-[var(--mail-bubble-other-border)] bg-[var(--mail-bubble-other)] shadow-sm")
+              : "mail-bubble-card border border-[var(--mail-bubble-other-border)] bg-[var(--mail-bubble-other)] shadow-sm")
         )}
       >
         {message.attachments?.length ? (
@@ -744,13 +755,34 @@ export function MailBubble({
             />
           </div>
         ) : null}
-        <div className={cn("relative", showHtml && "overflow-hidden rounded-t-lg")}>
+        <div
+          className={cn(
+            "relative",
+            showHtml && "overflow-hidden rounded-t-lg",
+
+          )}
+        >
           <div
             ref={bodyMeasureRef}
             className={cn(clamped && "max-h-[340px] overflow-hidden")}
           >
             {showHtml ? (
-              <div className={cn("relative", sendingOut && "opacity-60")}>
+              <div
+                className={cn(
+                  "relative",
+                  sendingOut && "opacity-60",
+                  /*
+                    No wrapper of ours around the sender's page.
+
+                    The mail is laid out exactly as it is in the light —
+                    same width, same left edge, same padding — and only its
+                    colours change, which the re-lighting does inside the
+                    frame. A sheet or an island here moved the words in from
+                    the edge and centred them, so switching theme moved the
+                    text about, and that is not what a theme is for.
+                  */
+                )}
+              >
                 {/* A frame cannot be floated into, so the time sits over its
                     bottom corner. The frame is the sender's own layout and
                     ends in whitespace far more often than not. */}
@@ -764,7 +796,8 @@ export function MailBubble({
                   inlineImages={message.inlineImages}
                   allowImages={allowImages}
                   zoom={zoom}
-                  bodyColor={wordsInTheDark ? "#f5f0e8" : undefined}
+                  bodyColor={readInTheDark ? "#e2e9f0" : undefined}
+                  darkRecolor={readInTheDark}
                 />
                 {htmlSplit?.hadQuote ? (
                   <button
@@ -867,6 +900,7 @@ export function MailBubble({
       </div>
       </div>
       {statusCaption}
+    </div>
     </div>
   );
 }

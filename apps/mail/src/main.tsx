@@ -26,6 +26,7 @@ import {
 
 import { App } from "./App";
 import { WindowControls } from "./WindowControls";
+import { showScrollbarsWhileScrolling } from "./scrollbars";
 import { importPlannerStateOnce } from "./import-planner-state";
 import { isDemoMode } from "./demo/mode";
 import { handleDemoMailApi } from "./demo/transport";
@@ -125,6 +126,8 @@ function applyWindowTheme() {
   document.documentElement.dataset.theme = readMailColorMode();
 }
 applyWindowTheme();
+// After `data-dh-os` is set above — it reads it to decide whether to run.
+showScrollbarsWhileScrolling();
 window.addEventListener(MAIL_COLOR_MODE_EVENT, applyWindowTheme);
 window.addEventListener("storage", applyWindowTheme);
 window

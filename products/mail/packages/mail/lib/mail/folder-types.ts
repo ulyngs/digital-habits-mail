@@ -10,7 +10,12 @@
  * of their mailbox, and Sent and Drafts refuse a dropped conversation the
  * same way the unified rows above them do. Absent on an ordinary folder.
  */
-export type MailFolderRole = "archive" | "drafts" | "sent" | "trash";
+export type MailFolderRole =
+  | "inbox"
+  | "archive"
+  | "drafts"
+  | "sent"
+  | "trash";
 
 /**
  * One folder, on one mailbox.

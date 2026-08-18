@@ -13,7 +13,6 @@
  */
 
 import * as React from "react";
-import { createPortal } from "react-dom";
 import {
   closestCenter,
   DndContext,
@@ -29,131 +28,20 @@ import {
   useSortable,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { Image as ImageIcon, RotateCcw } from "lucide-react";
 import { toast } from "sonner";
 
 import { AccountMark } from "@/components/mail/AccountMark";
 import {
-  ACCOUNT_MARK_MAX_EDGE,
-  setAccountMark,
-  useAccountMarks,
-} from "@/lib/mail/account-mark";
+  MarkMenu,
+  fileToMark,
+} from "@/components/mail/AccountMarkButton";
+import { setAccountMark, useAccountMarks } from "@/lib/mail/account-mark";
 import type { AccountChipLabel } from "@/lib/mail/account-labels";
 import { ALL_TAB_ID, writeAccountOrder } from "@/lib/mail/account-order";
 import { useAccountOrder } from "@/lib/mail/use-account-order";
 import { useMailT } from "@/lib/mail/i18n";
-import { downscaleTarget } from "@/lib/mail/rest-image";
 import { cn } from "@/lib/utils";
 
-/** Scale a chosen picture down to a mark and hand it back as a data URL. */
-async function fileToMark(file: File): Promise<string> {
-  const url = URL.createObjectURL(file);
-  try {
-    const image = await new Promise<HTMLImageElement>((resolve, reject) => {
-      const element = new Image();
-      element.onload = () => resolve(element);
-      element.onerror = () => reject(new Error("That file is not a picture"));
-      element.src = url;
-    });
-    const target = downscaleTarget(
-      image.naturalWidth,
-      image.naturalHeight,
-      ACCOUNT_MARK_MAX_EDGE
-    );
-    const canvas = document.createElement("canvas");
-    canvas.width = target.width;
-    canvas.height = target.height;
-    const context = canvas.getContext("2d");
-    if (!context) throw new Error("Could not read that picture");
-    context.drawImage(image, 0, 0, target.width, target.height);
-    // PNG: a logo has flat colour and hard edges, which JPEG smears.
-    return canvas.toDataURL("image/png");
-  } finally {
-    URL.revokeObjectURL(url);
-  }
-}
-
-/** The right-click menu on a mailbox tab. Placed at the pointer. */
-function MarkMenu({
-  x,
-  y,
-  hasOwnMark,
-  onChoose,
-  onReset,
-  onDismiss,
-}: {
-  x: number;
-  y: number;
-  hasOwnMark: boolean;
-  onChoose: () => void;
-  onReset: () => void;
-  onDismiss: () => void;
-}) {
-  const t = useMailT();
-  const ref = React.useRef<HTMLDivElement>(null);
-  const [placed, setPlaced] = React.useState({ left: x, top: y });
-
-  React.useLayoutEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    const box = el.getBoundingClientRect();
-    setPlaced({
-      left: Math.min(x, window.innerWidth - box.width - 8),
-      top: Math.min(y, window.innerHeight - box.height - 8),
-    });
-  }, [x, y]);
-
-  React.useEffect(() => {
-    const onDown = (event: MouseEvent) => {
-      if (ref.current?.contains(event.target as Node)) return;
-      onDismiss();
-    };
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onDismiss();
-    };
-    window.addEventListener("mousedown", onDown, true);
-    window.addEventListener("keydown", onKey);
-    window.addEventListener("scroll", onDismiss, true);
-    window.addEventListener("blur", onDismiss);
-    return () => {
-      window.removeEventListener("mousedown", onDown, true);
-      window.removeEventListener("keydown", onKey);
-      window.removeEventListener("scroll", onDismiss, true);
-      window.removeEventListener("blur", onDismiss);
-    };
-  }, [onDismiss]);
-
-  const item =
-    "flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-stone-800 hover:bg-stone-100";
-  const icon = "h-3.5 w-3.5 shrink-0 text-stone-400";
-
-  return createPortal(
-    <div
-      ref={ref}
-      role="menu"
-      style={{ left: placed.left, top: placed.top }}
-      className="mail-light-surface fixed z-[70] w-max rounded-lg border border-stone-200 bg-white py-1 shadow-lg"
-    >
-      <button
-        type="button"
-        role="menuitem"
-        autoFocus
-        className={item}
-        onClick={onChoose}
-      >
-        <ImageIcon className={icon} aria-hidden />
-        {t("chooseAPicture")}
-      </button>
-      {hasOwnMark ? (
-        <button type="button" role="menuitem" className={item} onClick={onReset}>
-          <RotateCcw className={icon} aria-hidden />
-          {t("useProviderMark")}
-        </button>
-      ) : null}
-    </div>,
-    document.body
-  );
-}
 
 /**
  * One mailbox tab, which can be dragged along the row.
@@ -318,14 +206,21 @@ export function MailAccountTabs({
     }
   };
 
+  /*
+    A row of choices with one switched on.
+
+    Named colours rather than `bg-white`: on the dark theme white is what
+    the blanket rewrite turns into chrome, so the chosen tab was the same
+    shade as the track it sits on. The three tokens say track, chosen, and
+    the rest — see --mail-segment in mail.css, which turns them over per
+    theme.
+  */
   const tab = (active: boolean) =>
     cn(
       "flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-1 text-[13px] transition-colors",
       active
-        ? "bg-white font-semibold text-stone-900 shadow-sm"
-        : onNavy
-          ? "text-[var(--mail-chrome-muted)] hover:text-[var(--mail-chrome-fg)]"
-          : "text-stone-600 hover:text-stone-900"
+        ? "bg-[var(--mail-segment-active)] font-semibold text-[var(--mail-segment-active-fg)] shadow-sm"
+        : "text-[var(--mail-segment-fg)] hover:text-[var(--mail-segment-active-fg)]"
     );
 
   return (
@@ -339,8 +234,7 @@ export function MailAccountTabs({
       <div className="-mx-0.5 overflow-x-auto px-0.5 [scrollbar-width:thin]">
         <div
           className={cn(
-            "flex w-max items-center gap-1 rounded-full p-1",
-            onNavy ? "bg-white/10" : "bg-[var(--mail-chrome-hover)]"
+            "flex w-max items-center gap-1 rounded-full bg-[var(--mail-segment-track)] p-1"
           )}
         >
           <DndContext

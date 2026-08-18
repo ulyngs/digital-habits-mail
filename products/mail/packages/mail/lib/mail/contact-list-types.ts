@@ -3,7 +3,7 @@
 export type MailContactListMember = {
   email: string;
   name: string;
-  /** Optional 1–2 letter avatar override (e.g. ML for mortenlyngs@…). */
+  /** Optional 1–2 letter avatar override (e.g. ML for mlarsen@…). */
   initials?: string;
 };
 

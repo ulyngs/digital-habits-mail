@@ -21,6 +21,8 @@ type QuillEditor = {
   getLength: () => number;
   getLeaf: (index: number) => [{ parent?: unknown } | null, number];
   focus: () => void;
+  format: (name: string, value: unknown, source?: string) => void;
+  getFormat: () => Record<string, unknown>;
 };
 
 type QuillRange = { index: number; length: number };
@@ -73,6 +75,47 @@ function registerSoftBreak(Quill: {
 
   Quill.register(SoftBreakBlot as never);
   softBreakRegistered = true;
+}
+
+let inlineStylesRegistered = false;
+
+/**
+ * Font and size written as inline styles, not as class names.
+ *
+ * Quill ships `font` and `size` as classes — `ql-font-serif`, `ql-size-large`
+ * — which say nothing without Quill's own stylesheet. A sent message carries
+ * no stylesheet, so the receiving mail app would show the class and none of
+ * the styling. These write the CSS property itself, which travels.
+ *
+ * Neither takes a whitelist. Browsers rewrite `font-family` and `font-size`
+ * when they parse them, so a listed value can come back in a form that is no
+ * longer on the list — and a reopened draft would quietly lose its styling.
+ */
+function registerInlineStyles(Quill: {
+  import: (name: string) => unknown;
+  register: (...args: never[]) => void;
+}) {
+  if (inlineStylesRegistered) return;
+
+  const Parchment = Quill.import("parchment") as {
+    Scope: { INLINE: unknown };
+    StyleAttributor: new (
+      attrName: string,
+      keyName: string,
+      options: { scope: unknown }
+    ) => unknown;
+  };
+
+  const inline = { scope: Parchment.Scope.INLINE };
+  Quill.register(
+    new Parchment.StyleAttributor("font", "font-family", inline) as never,
+    true as never
+  );
+  Quill.register(
+    new Parchment.StyleAttributor("size", "font-size", inline) as never,
+    true as never
+  );
+  inlineStylesRegistered = true;
 }
 
 /** Insert a soft linebreak; double-BR at block end so the caret can sit after it. */
@@ -201,6 +244,17 @@ export type RichTextEditorHandle = {
   setCaret: (index: number) => void;
   /** Take the caret, leaving it where it last was. */
   focus: () => void;
+  /**
+   * Apply an inline format to the selection, or `false` to take it off.
+   *
+   * For controls that cannot live in the toolbar element itself. Quill binds
+   * its own buttons at mount, from inside that element, so anything in a
+   * popover — which is drawn elsewhere and only when it opens — has to reach
+   * the editor this way instead.
+   */
+  format: (name: string, value: string | boolean) => void;
+  /** The inline formats at the selection, for showing which one is on. */
+  activeFormats: () => Record<string, unknown>;
 };
 
 /**
@@ -211,6 +265,7 @@ export type RichTextEditorHandle = {
 export function preloadRichTextEditor(): void {
   void import("react-quill-new").then(({ Quill }) => {
     registerSoftBreak(Quill);
+    registerInlineStyles(Quill);
   });
 }
 
@@ -220,6 +275,7 @@ const ReactQuill = dynamic(
   async () => {
     const { default: RQ, Quill } = await import("react-quill-new");
     registerSoftBreak(Quill);
+    registerInlineStyles(Quill);
     function ReactQuillWithRef({
       quillRef,
       ...props
@@ -321,6 +377,17 @@ export function RichTextEditor({
       focus: () => {
         quillRef.current?.getEditor()?.focus();
       },
+      format: (name, value) => {
+        const editor = quillRef.current?.getEditor();
+        if (!editor) return;
+        // The popover holds the focus while it is open. getSelection(true)
+        // takes it back and restores the range the writer selected before
+        // reaching for the menu, which is what the format is meant for.
+        editor.getSelection(true);
+        editor.format(name, value, "user");
+      },
+      activeFormats: () =>
+        quillRef.current?.getEditor()?.getFormat() ?? {},
     };
     return () => {
       handleRef.current = null;
@@ -379,7 +446,22 @@ export function RichTextEditor({
     [toolbarId, variant]
   );
 
-  const formats = ["bold", "italic", "underline", "list", "link", "softbreak"];
+  const formats = [
+    "bold",
+    "italic",
+    "underline",
+    "list",
+    "link",
+    "softbreak",
+    "strike",
+    // Quill writes this one as <sub> and <sup>, which every mail app draws
+    // without being told how — the same reason strike is safe to offer.
+    "script",
+    "font",
+    "size",
+    "color",
+    "background",
+  ];
 
   return (
     <div

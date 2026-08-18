@@ -485,12 +485,8 @@ function NewFolderRow({
       type="button"
       disabled={disabled || pending}
       aria-busy={pending || undefined}
-      className={cn(
-        "flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-sm",
-        highlighted || pending
-          ? "bg-teal-50 text-teal-900"
-          : "text-stone-800 hover:bg-stone-50"
-      )}
+      data-picked={highlighted || pending ? "true" : undefined}
+      className="mail-menu-pick flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-sm text-stone-800"
       onMouseEnter={onHover}
       onClick={onPick}
     >
@@ -507,7 +503,7 @@ function NewFolderRow({
         {pending ? "…" : null}
       </span>
       {highlighted && !pending ? (
-        <CornerDownLeft className="h-3.5 w-3.5 shrink-0 text-teal-600" />
+        <CornerDownLeft className="h-3.5 w-3.5 shrink-0" />
       ) : null}
     </button>
   );
@@ -957,11 +953,13 @@ export function FoldersTabMenu({
                   <button
                     type="button"
                     disabled={saving}
+                    /* The row the keys and the pointer agree on. Marked
+                       rather than hovered, because the arrows move it
+                       without the pointer going anywhere — see
+                       `mail-menu-pick`, which the snooze menu wears too. */
+                    data-picked={i === highlight ? "true" : undefined}
                     className={cn(
-                      "flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-sm",
-                      i === highlight
-                        ? "bg-teal-50 text-teal-900"
-                        : "text-stone-800 hover:bg-stone-50",
+                      "mail-menu-pick flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-sm text-stone-800",
                       dragOverFolder === item.folder.name &&
                         "bg-teal-50 ring-1 ring-inset ring-teal-600/40"
                     )}
@@ -974,7 +972,7 @@ export function FoldersTabMenu({
                       {item.folder.count}
                     </span>
                     {i === highlight ? (
-                      <CornerDownLeft className="h-3.5 w-3.5 shrink-0 text-teal-600" />
+                      <CornerDownLeft className="h-3.5 w-3.5 shrink-0" />
                     ) : null}
                   </button>
                 </li>
@@ -1131,6 +1129,7 @@ export function MoveToFolderMenu({
   onMoved,
   onMoveToJunk,
   openSignal,
+  trigger,
   title = "Move to folder",
 }: {
   folders: MailFolder[];
@@ -1142,6 +1141,14 @@ export function MoveToFolderMenu({
   onMoveToJunk?: () => void;
   /** Bump to open the menu from elsewhere — the keyboard shortcut does. */
   openSignal?: number;
+  /**
+   * What opens it, when the toolbar's round icon is the wrong shape.
+   *
+   * The row's right-click menu offers this among its own items, so there it
+   * is a row of that menu — the same arrangement the snooze menu already
+   * allows. Given one, the title and label belong to it.
+   */
+  trigger?: React.ReactNode;
   /**
    * What the trigger says on hover. Given by the caller, because the key
    * that opens this is the caller's to know and the reader's to be told:
@@ -1219,23 +1226,28 @@ export function MoveToFolderMenu({
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <button
-          ref={triggerRef}
-          type="button"
-          title={title}
-          aria-label={t("moveToFolder")}
-          aria-expanded={open}
-          className={cn(
-            "inline-flex h-9 w-9 items-center justify-center rounded-full text-[var(--mail-thread-muted)] hover:bg-[var(--mail-chrome-hover)] hover:text-[var(--mail-thread-fg)] [&_svg]:size-[19px]",
-            open &&
-              "bg-[var(--mail-chrome-selected)] text-[var(--mail-thread-fg)]"
-          )}
-        >
-          <FolderInput />
-        </button>
+        {trigger ?? (
+          <button
+            ref={triggerRef}
+            type="button"
+            title={title}
+            aria-label={t("moveToFolder")}
+            aria-expanded={open}
+            className={cn(
+              "inline-flex h-9 w-9 items-center justify-center rounded-full text-[var(--mail-thread-muted)] hover:bg-[var(--mail-chrome-hover)] hover:text-[var(--mail-thread-fg)] [&_svg]:size-[19px]",
+              open &&
+                "bg-[var(--mail-chrome-selected)] text-[var(--mail-thread-fg)]"
+            )}
+          >
+            <FolderInput />
+          </button>
+        )}
       </PopoverTrigger>
       <MailPopoverContent
         ref={contentRef}
+        /* Named, so a menu this one opens out of can tell a press in here
+           from a press outside itself — see ThreadToolbarOverflow. */
+        data-mail-move-menu
         align="end"
         className="w-72 p-0"
         onOpenAutoFocus={(e) => e.preventDefault()}
@@ -1280,7 +1292,7 @@ export function MoveToFolderMenu({
           <div className="border-b border-stone-100 p-1">
             <button
               type="button"
-              className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm text-stone-800 hover:bg-stone-50"
+              className="mail-menu-pick flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm text-stone-800"
               title={t("junkHint")}
               onClick={() => {
                 setOpen(false);
@@ -1328,19 +1340,17 @@ export function MoveToFolderMenu({
                   <button
                     type="button"
                     disabled={busy}
-                    className={cn(
-                      "flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-sm",
-                      i === highlight
-                        ? "bg-teal-50 text-teal-900"
-                        : "text-stone-800 hover:bg-stone-50"
-                    )}
+                    /* The row the keys and the pointer agree on — see
+                       `mail-menu-pick`, which the snooze menu wears too. */
+                    data-picked={i === highlight ? "true" : undefined}
+                    className="mail-menu-pick flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-sm text-stone-800"
                     onMouseEnter={() => setHighlight(i)}
                     onClick={() => void pick(item)}
                   >
                     <Folder className="h-4 w-4 shrink-0 text-stone-400" />
                     <FolderNameLabel name={item.folder.name} />
                     {i === highlight ? (
-                      <CornerDownLeft className="h-3.5 w-3.5 shrink-0 text-teal-600" />
+                      <CornerDownLeft className="h-3.5 w-3.5 shrink-0" />
                     ) : null}
                   </button>
                 </li>

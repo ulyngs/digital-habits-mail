@@ -128,13 +128,31 @@ fn splash_overlay_js() -> String {
     r#"(function () {{
   if (document.getElementById('dh-mail-splash')) return;
   var root = document.documentElement;
+  /*
+    System counts as dark when the system is dark.
+
+    The stored value is what the reader picked, and what most of them pick
+    is nothing: "System" is the default, and it is written as `system` or
+    not written at all. Testing only for `dark` therefore gave a cream
+    splash to every reader on a dark Mac who had never opened Settings —
+    which is nearly all of them.
+  */
   var dark = false;
-  try {{ dark = localStorage.getItem('redd-plan-mail-color-mode') === 'dark'; }} catch (_) {{}}
+  try {{
+    var picked = localStorage.getItem('redd-plan-mail-color-mode');
+    dark =
+      picked === 'dark' ||
+      ((!picked || picked === 'system') &&
+        typeof window.matchMedia === 'function' &&
+        window.matchMedia('(prefers-color-scheme: dark)').matches);
+  }} catch (_) {{}}
   var host = document.createElement('div');
   host.id = 'dh-mail-splash';
   host.setAttribute('data-tauri-drag-region', '');
   if (dark) {{
-    host.style.setProperty('--dh-splash-bg', '#1e2d3e');
+    // The chrome the app opens into, so the splash does not hand over to a
+    // different shade of navy.
+    host.style.setProperty('--dh-splash-bg', '#1a2735');
     host.style.setProperty('--dh-splash-fg', 'rgba(255,255,255,.7)');
     host.style.setProperty('--dh-splash-track', 'rgba(255,255,255,.2)');
     host.style.setProperty('--dh-splash-shadow', 'rgba(0,0,0,.28)');

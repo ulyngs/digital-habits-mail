@@ -45,6 +45,7 @@ import {
   MIN_CONTROLS_WIDTH,
   MIN_LIST_HEIGHT,
   MIN_LIST_WIDTH,
+  MIN_READER_WIDTH,
   NARROW_LIST_WIDTH,
   SNAP_HIDE_LIST_HEIGHT,
   useMailControlsWidth,
@@ -53,7 +54,9 @@ import {
   useMailListWidth,
   nextZoomStop,
   useMailZoom,
+  usePinchZoom,
 } from "@/components/mail/use-mail-layout";
+import { ZoomControls } from "@/components/mail/ZoomControls";
 import {
   mailConnectHref,
 } from "@/lib/mail/connect-mailbox";
@@ -73,6 +76,7 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 import {
   Archive,
+  ArchiveRestore,
   Check,
   Trash2,
   ArrowLeft,
@@ -82,17 +86,24 @@ import {
   ChevronRight,
   Clock,
   Folder,
+  FolderInput,
+  Forward,
   Funnel,
   Loader2,
   Mails,
   Maximize2,
   Minimize2,
   Paperclip,
+  PictureInPicture2,
   Pin,
   Plus,
+  Printer,
   RefreshCw,
+  Reply,
+  ReplyAll,
   RotateCwFadingClock,
   Search,
+  ShieldCheck,
   SlidersVertical,
   SquarePen,
   User,
@@ -117,11 +128,15 @@ import {
   FolderViewHeader,
   FoldersTabMenu,
   isMailThreadDrag,
+  MoveToFolderMenu,
   setMailThreadDragData,
   useDraggingMailAccount,
   useMailFolders,
 } from "@/components/mail/MailFolders";
-import { MailFolderRail } from "@/components/mail/MailFolderRail";
+import {
+  MailFolderRail,
+  type MailSystemView,
+} from "@/components/mail/MailFolderRail";
 import {
   FOLDER_RAIL_MAX_WIDTH,
   FOLDER_RAIL_MIN_WIDTH,
@@ -206,8 +221,10 @@ import {
   SettingsTextSizeRow,
   SettingsRow,
   SettingsToggle,
+  SettingsDialog,
   settingsSecondaryButton,
 } from "@/components/mail/settings-ui";
+import { THREAD_ACTION_CLASS } from "@/components/mail/thread-actions";
 import {
   currentMailLocale,
   mailSay,
@@ -238,6 +255,7 @@ import { onScheduledChanged } from "@/lib/mail/scheduled-events";
 import type {
   MailScheduledMessage,
   MailTab,
+  MailThreadAction,
   MailThreadSummary,
 } from "@/lib/mail/types";
 import {
@@ -345,7 +363,8 @@ function playThreadRowFlip(
 }
 
 /**
- * Inbox row with hover pin/archive/delete — no permanent pin icon at rest.
+ * Inbox row. Hover shows read / snooze / archive; pinning is on the
+ * right-click menu, and on the reader's strip once the thread is open.
  * `dragKind: "pin"` marks the payload so dropping on the date flow unpins.
  */
 /** Spacious multi-line rows vs dense one-line rows in the mail list. */
@@ -508,9 +527,11 @@ function MailViewModeTabs({
       role="tablist"
       aria-label={t("listGrouping")}
       className={cn(
-        "flex shrink-0 rounded-md p-0.5",
-        vertical ? "flex-col gap-0.5" : "items-center gap-0.5",
-        onNavy ? "bg-white/10" : "bg-stone-200/60"
+        // The same three tokens the mailbox tabs use, on the darker of the
+        // two tracks: this one sits in the title bar, which is a step up
+        // from the chrome the mailbox row is on.
+        "flex shrink-0 rounded-md bg-[var(--mail-segment-track-strong)] p-0.5",
+        vertical ? "flex-col gap-0.5" : "items-center gap-0.5"
       )}
     >
       {options.map(({ id, label, Icon }) => {
@@ -527,13 +548,9 @@ function MailViewModeTabs({
             onClick={() => onChange(id)}
             className={cn(
               "rounded p-1",
-              onNavy
-                ? selected
-                  ? "bg-white/20 text-[var(--mail-chrome-fg)]"
-                  : "text-[var(--mail-chrome-muted)] hover:text-[var(--mail-chrome-fg)]"
-                : selected
-                  ? "bg-white text-stone-900 shadow-sm"
-                  : "text-stone-500 hover:text-stone-800"
+              selected
+                ? "bg-[var(--mail-segment-active)] text-[var(--mail-segment-active-fg)] shadow-sm"
+                : "text-[var(--mail-segment-fg)] hover:text-[var(--mail-segment-active-fg)]"
             )}
           >
             <Icon className="h-4 w-4" aria-hidden />
@@ -667,6 +684,18 @@ function MailLayoutMenu({
         className="flex max-h-[calc(var(--radix-popover-content-available-height)/var(--mail-css-zoom,1))] w-96 flex-col overflow-hidden p-0"
         collisionPadding={12}
         onCloseAutoFocus={(e) => e.preventDefault()}
+        /*
+          A menu this panel opened is not somewhere else.
+
+          The mark menu hangs on <body> so it can escape this panel's
+          scroll, which to Radix looks like a press outside — so the panel
+          closed on the way down and the click never reached the item it
+          was aimed at. Nothing here was clickable at all.
+        */
+        onInteractOutside={(event) => {
+          const target = event.target as HTMLElement | null;
+          if (target?.closest("[data-mail-mark-menu]")) event.preventDefault();
+        }}
       >
         <div className="flex items-baseline justify-between gap-3 px-3 pb-2 pt-3">
           <h2 className="font-serif text-xl font-bold text-stone-900">
@@ -826,10 +855,14 @@ function useThreadDraftKeys(): ReadonlySet<string> {
 /**
  * The right-click menu on a row in the list.
  *
- * The same things the row offers on hover, said in words, plus the two that
- * were only ever on an open thread — archive and delete. Snooze is first
- * because it is the one you reach for while reading a list rather than a
- * message: "not now, and not lost".
+ * Everything the reader's own action strip offers, in the same order and
+ * the same three groups — answer it, settle it, file it — with archive and
+ * delete held back to the end, because those two are the ones you cannot
+ * take back with the next click and a menu should not open under the
+ * pointer with them where "reply" used to be.
+ *
+ * Five of them need the messages, which a row does not hold: those open the
+ * thread and are done there. See `MailThreadAction`.
  *
  * Placed at the pointer and clamped to the window, like the folder menu in
  * the rail — see MailFolderRail.
@@ -840,10 +873,17 @@ function ThreadRowMenu({
   unread,
   pinned,
   snoozed,
+  canReplyAll,
+  folders,
+  onAction,
   onSnooze,
   onCancelSnooze,
   onToggleRead,
   onTogglePin,
+  onMoveToFolder,
+  onJunk,
+  onNotJunk,
+  onRestore,
   onArchive,
   onTrash,
   onDismiss,
@@ -853,10 +893,19 @@ function ThreadRowMenu({
   unread: boolean;
   pinned: boolean;
   snoozed: boolean;
+  /** Reply all reaches somebody Reply does not — the reader's own rule. */
+  canReplyAll: boolean;
+  folders: MailFolder[];
+  /** Open the thread and do this there. */
+  onAction: (action: MailThreadAction) => void;
   onSnooze?: () => void;
   onCancelSnooze?: () => void;
   onToggleRead: () => void;
   onTogglePin: () => void;
+  onMoveToFolder?: (folderName: string, create: boolean) => Promise<void>;
+  onJunk?: () => void;
+  onNotJunk?: () => void;
+  onRestore?: () => void;
   onArchive?: () => void;
   onTrash?: () => void;
   onDismiss: () => void;
@@ -922,8 +971,47 @@ function ThreadRowMenu({
       onKeyDown={(e) => e.stopPropagation()}
       className="mail-light-surface fixed z-[70] w-max min-w-[11rem] rounded-lg border border-stone-200 bg-white py-1 shadow-lg"
     >
+      {/* Answering it. First, because it is what a conversation is for. */}
+      <button
+        type="button"
+        role="menuitem"
+        autoFocus
+        className={item}
+        onClick={run(() => onAction("reply"))}
+      >
+        <Reply className={icon} aria-hidden />
+        {t("actionReply")}
+      </button>
+      {canReplyAll ? (
+        <button
+          type="button"
+          role="menuitem"
+          className={item}
+          onClick={run(() => onAction("replyAll"))}
+        >
+          <ReplyAll className={icon} aria-hidden />
+          {t("actionReplyAll")}
+        </button>
+      ) : null}
+      <button
+        type="button"
+        role="menuitem"
+        className={item}
+        onClick={run(() => onAction("forward"))}
+      >
+        <Forward className={icon} aria-hidden />
+        {t("actionForward")}
+      </button>
+
+      <MenuRule />
+
+      {/* Settling it: what it is to you, and when. */}
+      <button type="button" role="menuitem" className={item} onClick={run(onToggleRead)}>
+        <MailDotIcon className={icon} aria-hidden />
+        {unread ? t("markAsRead") : t("markAsUnread")}
+      </button>
       {onSnooze ? (
-        <button type="button" role="menuitem" autoFocus className={item} onClick={run(onSnooze)}>
+        <button type="button" role="menuitem" className={item} onClick={run(onSnooze)}>
           <RotateCwFadingClock className={icon} aria-hidden />
           {snoozed ? t("changeSnoozeEllipsis") : t("snoozeEllipsis")}
         </button>
@@ -934,14 +1022,68 @@ function ThreadRowMenu({
           {t("cancelSnooze")}
         </button>
       ) : null}
-      <button type="button" role="menuitem" className={item} onClick={run(onToggleRead)}>
-        <MailDotIcon className={icon} aria-hidden />
-        {unread ? t("markAsRead") : t("markAsUnread")}
-      </button>
       <button type="button" role="menuitem" className={item} onClick={run(onTogglePin)}>
         <Pin className={icon} aria-hidden />
         {pinned ? t("unpin") : t("pinToTop")}
       </button>
+
+      <MenuRule />
+
+      {/* Doing something with it. The folder menu is the reader's own, on a
+          trigger shaped like the rows around it — it opens beside the menu
+          rather than replacing it, so the pointer never loses its place. */}
+      {onMoveToFolder ? (
+        <MoveToFolderMenu
+          folders={folders}
+          onMoved={async (folderName, create) => {
+            await onMoveToFolder(folderName, create);
+            onDismiss();
+          }}
+          onMoveToJunk={onJunk ? run(onJunk) : undefined}
+          title={t("moveToFolder")}
+          trigger={
+            <button type="button" role="menuitem" className={item}>
+              <FolderInput className={icon} aria-hidden />
+              {t("moveToFolder")}
+            </button>
+          }
+        />
+      ) : null}
+      {onNotJunk ? (
+        <button type="button" role="menuitem" className={item} onClick={run(onNotJunk)}>
+          <ShieldCheck className={icon} aria-hidden />
+          {t("notJunk")}
+        </button>
+      ) : null}
+      {onRestore ? (
+        <button type="button" role="menuitem" className={item} onClick={run(onRestore)}>
+          <ArchiveRestore className={icon} aria-hidden />
+          {t("restore")}
+        </button>
+      ) : null}
+      <button
+        type="button"
+        role="menuitem"
+        className={item}
+        onClick={run(() => onAction("print"))}
+      >
+        <Printer className={icon} aria-hidden />
+        {t("actionPrint")}
+      </button>
+      <button
+        type="button"
+        role="menuitem"
+        className={item}
+        onClick={run(() => onAction("popOut"))}
+      >
+        <PictureInPicture2 className={icon} aria-hidden />
+        {t("popOutChat")}
+      </button>
+
+      {onArchive || onTrash ? <MenuRule /> : null}
+
+      {/* Last, and on their own. Everything above leaves the conversation
+          where it is; these two take it out of the list. */}
       {onArchive ? (
         <button type="button" role="menuitem" className={item} onClick={run(onArchive)}>
           <Archive className={icon} aria-hidden />
@@ -964,6 +1106,11 @@ function ThreadRowMenu({
   );
 }
 
+/** The line between two groups of a menu. */
+function MenuRule() {
+  return <div aria-hidden className="my-1 h-px bg-stone-200" />;
+}
+
 function ThreadListRow({
   thread: t,
   selected,
@@ -980,6 +1127,12 @@ function ThreadListRow({
   onCancelSnooze,
   onArchive,
   onTrash,
+  onAction,
+  folders,
+  onMoveToFolder,
+  onJunk,
+  onNotJunk,
+  onRestore,
   dragKind,
 }: {
   thread: MailThreadSummary;
@@ -1002,6 +1155,16 @@ function ThreadListRow({
   /** Right-click actions that only make sense where the row can take them. */
   onArchive?: () => void;
   onTrash?: () => void;
+  /**
+   * The right-click actions the reader has to carry out, because they need
+   * the messages and a row holds a summary. See `MailThreadAction`.
+   */
+  onAction: (action: MailThreadAction) => void;
+  folders?: MailFolder[];
+  onMoveToFolder?: (folderName: string, create: boolean) => Promise<void>;
+  onJunk?: () => void;
+  onNotJunk?: () => void;
+  onRestore?: () => void;
   dragKind: "pin" | "folder";
 }) {
   const say = useMailT();
@@ -1053,8 +1216,8 @@ function ThreadListRow({
     >
       <button
         type="button"
-        title={t.unread ? "Mark as read" : "Mark as unread"}
-        aria-label={t.unread ? "Mark as read" : "Mark as unread"}
+        title={say(t.unread ? "markAsRead" : "markAsUnread")}
+        aria-label={say(t.unread ? "markAsRead" : "markAsUnread")}
         className={actionBtn}
         onClick={onToggleRead}
       >
@@ -1084,29 +1247,26 @@ function ThreadListRow({
           }
         />
       ) : null}
-      <button
-        type="button"
-        title={pinned ? "Unpin" : "Pin"}
-        aria-label={pinned ? "Unpin" : "Pin"}
-        className={cn(
-          "rounded p-1",
-          pinned
-            ? onNavy
-              ? "text-teal-300 hover:bg-white/10"
-              : "text-teal-600 hover:bg-teal-50"
-            : onNavy
-              ? "text-white/55 hover:bg-white/10 hover:text-teal-300"
-              : "text-stone-500 hover:bg-stone-100 hover:text-teal-700"
-        )}
-        onClick={onTogglePin}
-      >
-        <Pin
-          className={cn(
-            actionIcon,
-            pinned && (onNavy ? "fill-teal-300" : "fill-teal-600")
-          )}
-        />
-      </button>
+      {/* Archive rather than pin.
+
+          The three that hover shows are the three a reader does over and
+          over on the way down a list: read it, put it off, put it away.
+          Pinning is not one of those — it is done to the few conversations
+          that are going to stay, and it stays done. It is still on the
+          right-click menu, and now on the reader's own strip beside
+          snooze, which is where it is wanted: on the conversation being
+          read, not the one being passed over. */}
+      {onArchive ? (
+        <button
+          type="button"
+          title={say("actionArchive")}
+          aria-label={say("actionArchive")}
+          className={actionBtn}
+          onClick={onArchive}
+        >
+          <Archive className={actionIcon} />
+        </button>
+      ) : null}
     </span>
   );
 
@@ -1175,25 +1335,20 @@ function ThreadListRow({
             ? cn("items-center gap-2.5 py-1.5", padX)
             : cn("items-start gap-3 py-3", padX),
         /*
-          The open thread, said twice: white, and a bar down the left.
+          The open thread, said twice: a fill, and a bar down the left.
 
-          White because the list is cream now, and the plainest surface in
-          the app reads as the one being attended to — the same way a
-          message is a white sheet in a cream room. It was a teal wash, from
-          when the list was white and a tint was the only way to say
-          anything at all; two colors saying "this one" is one more than the
-          bar already needs. Dark rewrites bg-white to its lifted navy, so
-          the same rule holds there.
+          Light fills it white, because the list is cream and the plainest
+          surface reads as the one being attended to. Dark cannot do that —
+          white there is a hole — so it takes a tenth of the accent, which
+          is the same colour as the bar. Either way the fill is a colour and
+          the hover is a grey, so a row you are pointing at is never read as
+          a row you have opened.
         */
-        onNavy
-          ? selected
-            ? "bg-white/15"
-            : "hover:bg-white/10"
-          : selected
-            ? "bg-white"
-            : "hover:bg-[#f4f1ec]",
+        selected
+          ? "bg-[var(--mail-row-selected)]"
+          : "hover:bg-[var(--mail-row-hover)]",
         selected &&
-          "before:absolute before:inset-y-0 before:left-0 before:w-[4px] before:rounded-r-[1px] before:bg-teal-600"
+          "before:absolute before:inset-y-0 before:left-0 before:w-[4px] before:rounded-r-[1px] before:bg-[var(--mail-accent)]"
       )}
     >
       <SenderAvatar
@@ -1420,10 +1575,20 @@ function ThreadListRow({
           unread={Boolean(t.unread)}
           pinned={pinned}
           snoozed={Boolean(t.snoozedUntil)}
+          /* Everyone on it but us. One of them is who Reply writes to, so
+             it takes two before Reply all reaches anybody more — the same
+             answer the reader works out from the message itself. */
+          canReplyAll={(t.externalParticipants?.length ?? 0) > 1}
+          folders={folders ?? []}
+          onAction={onAction}
           onSnooze={onSnooze ? () => setSnoozeSignal((n) => n + 1) : undefined}
           onCancelSnooze={onCancelSnooze}
           onToggleRead={onToggleRead}
           onTogglePin={onTogglePin}
+          onMoveToFolder={onMoveToFolder}
+          onJunk={onJunk}
+          onNotJunk={onNotJunk}
+          onRestore={onRestore}
           onArchive={onArchive}
           onTrash={onTrash}
           onDismiss={() => setMenuAt(null)}
@@ -1591,7 +1756,7 @@ function mailBuiltinTabLabels(t: MailT): Record<string, string> {
  * What the search box offers to search, which is whatever is open.
  *
  * The field used to name the mailboxes — "Search all mail", "Search in
- * ulrik.lyngs · gmail" — and say nothing about the view, back when a search
+ * this mailbox · gmail" — and say nothing about the view, back when a search
  * ignored the view entirely. Now that a search stays inside it, this is the
  * half that changes and the mailboxes are named by the menu beside it.
  */
@@ -1708,8 +1873,17 @@ function useMailCustomLists(): MailCustomList[] {
   );
 }
 
+/**
+ * Which filter the list opens on.
+ *
+ * All, unless the reader last left it somewhere else or a list is
+ * scheduled to take over. It used to be In contacts, which is a filter —
+ * a first run, or a reader who has never touched the row, was shown part
+ * of their mail with nothing to say that the rest was being held back.
+ * A mail app opens on the mail.
+ */
 function readStoredMailListTab(customLists: MailCustomList[]): MailListTab {
-  if (typeof window === "undefined") return "people";
+  if (typeof window === "undefined") return "all";
   // Scheduled lists win when you open Mail during their window, and so do
   // the built-in filters, which can now be scheduled the same way.
   const scheduled =
@@ -1718,7 +1892,7 @@ function readStoredMailListTab(customLists: MailCustomList[]): MailListTab {
   if (scheduled) return scheduled;
   try {
     const stored = localStorage.getItem(MAIL_TAB_KEY);
-    if (!stored) return "people";
+    if (!stored) return "all";
     if (MAIL_OFF_TAB_VIEWS.includes(stored) || MAIL_LIST_TABS.includes(stored)) {
       return stored;
     }
@@ -1727,7 +1901,7 @@ function readStoredMailListTab(customLists: MailCustomList[]): MailListTab {
   } catch {
     /* private mode */
   }
-  return "people";
+  return "all";
 }
 
 /** Keep known tabs (builtins + existing custom lists), append any missing. */
@@ -1985,7 +2159,7 @@ function useMailListTab(
   customLists: MailCustomList[]
 ): [MailListTab, (tab: MailListTab) => void] {
   // Default matches SSR; restore localStorage / schedule in layout effect.
-  const [tab, setTab] = React.useState<MailListTab>("people");
+  const [tab, setTab] = React.useState<MailListTab>("all");
   // Include schedule fields so editing "default at set times" re-evaluates.
   const customKey = customLists
     .map(
@@ -2205,10 +2379,11 @@ function SenderAvatar({
       {unread ? (
         <span
           className={cn(
-            "absolute right-0 top-0 h-2 w-2 rounded-full ring-2",
-            onNavy
-              ? "bg-teal-400 ring-reddNavy"
-              : "bg-teal-600 ring-[#faf8f5]"
+            // One teal in both themes — see --mail-accent. It was a lighter
+            // one on navy, which made the same mark two colours depending
+            // on which theme you had.
+            "absolute right-0 top-0 h-2 w-2 rounded-full bg-[var(--mail-accent)] ring-2",
+            onNavy ? "ring-reddNavy" : "ring-[#faf8f5]"
           )}
         />
       ) : null}
@@ -2459,10 +2634,8 @@ function PersonAvatar({
         {row.unread ? (
           <span
             className={cn(
-              "absolute right-0 top-0 h-2 w-2 rounded-full ring-2",
-              onNavy
-                ? "bg-teal-400 ring-reddNavy"
-                : "bg-teal-600 ring-[#faf8f5]"
+              "absolute right-0 top-0 h-2 w-2 rounded-full bg-[var(--mail-accent)] ring-2",
+              onNavy ? "ring-reddNavy" : "ring-[#faf8f5]"
             )}
           />
         ) : null}
@@ -2577,6 +2750,20 @@ const RAIL_GUTTER = 4;
 const LIST_COLUMN_PAD = 20;
 
 /**
+ * The narrowest a message being read or written is allowed to get.
+ *
+ * The composer is the one that decides this. It has rows with two things on
+ * each — a recipient field with Cc and Bcc beside it, a subject with the
+ * expand control after it — and under about this width they stop fitting
+ * side by side and start sitting on top of one another.
+ *
+ * It is a floor, not a size: nothing is widened to reach it. It is what the
+ * list and the folders give way to when there is not enough room to go
+ * round, which is what pressing New email is asking for — room to write in.
+ */
+const MIN_DETAIL_WIDTH = 460;
+
+/**
  * The folder the list is showing.
  *
  * `account` is the mailbox it was opened from, or null for every mailbox at
@@ -2599,6 +2786,9 @@ type ActiveMailFolder = MailFolder & {
 
 /** A virtual row's role, as the view the thread list already knows. */
 const ROLE_VIEW: Record<MailFolderRole, string> = {
+  // Gmail has no inbox label to ask for either: it is the view everything
+  // else is defined against, and the list already knows it by name.
+  inbox: "inbox",
   archive: "archived",
   drafts: "drafts",
   sent: "sent",
@@ -2797,6 +2987,38 @@ export function MailPage({
     loading: foldersLoading,
     refresh: refreshFolders,
   } = useMailFolders("all", { deferMs: 400 });
+
+  /**
+   * A mailbox that has just been connected brings its folders with it.
+   *
+   * The folder list is fetched once, for every mailbox at once, and nothing
+   * asked for it again when a mailbox was added — so the rail stood as it
+   * had been until something else happened to refresh it. Somebody who has
+   * just connected an account is the one person certain to be looking at
+   * the rail, and a new account is the one time it is certainly wrong.
+   *
+   * On the set of addresses, not the list: arranging the mailboxes in
+   * settings hands back the same ones in another order, and that is not a
+   * reason to ask the providers for anything. A mailbox disconnected counts
+   * as much as one added — its folders have to go.
+   */
+  const connectedAccountsKey = React.useMemo(
+    () =>
+      [...accounts]
+        .map((email) => email.trim().toLowerCase())
+        .sort()
+        .join("|"),
+    [accounts]
+  );
+  const knownAccountsRef = React.useRef(connectedAccountsKey);
+  React.useEffect(() => {
+    if (knownAccountsRef.current === connectedAccountsKey) return;
+    knownAccountsRef.current = connectedAccountsKey;
+    void refreshFolders();
+    // `refreshFolders` is rebuilt on every render — the ref above is what
+    // decides, and adding it here would ask on every render instead.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [connectedAccountsKey]);
   const [railOpen, setRailOpen] = useFolderRailOpen();
   const {
     width: railWidth,
@@ -3130,6 +3352,65 @@ export function MailPage({
     onCollapse: () => setListCollapsed(true),
     invertDrag: listPlacement === "bottom",
   });
+  /**
+   * The list and the folders stand aside for a message being written.
+   *
+   * Pressing New email asks for room to write in, and on a window where the
+   * reader has given most of the width to the list there was none: the
+   * composer arrived at whatever was left, which was narrow enough for its
+   * own rows to overlap. Rather than refuse the layout, the two columns
+   * beside it give up what they can — the list first, because it is the
+   * wider of them and the one being written away from, then the folders.
+   *
+   * Neither is written down. This is what they are shown at while the
+   * composer is up; the widths the reader dragged are what they go back to
+   * when it closes, without anybody having to drag them again.
+   *
+   * Only side by side, and only once measured. Stacked (list over reader)
+   * the width is shared with nothing, and an unmeasured pane would squeeze
+   * against a guess.
+   */
+  // `hideList` says the same thing further down, where the panes are laid
+  // out; it is not declared yet here.
+  const squeezable =
+    measured && !listVertical && !listExpanded && !listCollapsed;
+  const railSpace = railShowing ? railWidth + RAIL_GUTTER : 0;
+  /**
+   * How much is kept for the pane beside the list.
+   *
+   * Always something: the list is a fixed width that does not shrink, so a
+   * width set on a wide screen is wider than the whole pane once the window
+   * is put on half of one — and what ran off the edge was the reader, then
+   * the right-hand end of the list itself. The divider has always refused to
+   * be dragged past this; resizing the window now refuses too.
+   *
+   * More than that while a message is open, because a message being read or
+   * written needs room to be worth opening.
+   */
+  const reserve = detailOpen ? MIN_DETAIL_WIDTH : MIN_READER_WIDTH;
+  const overflowing = squeezable
+    ? Math.max(0, listWidth + railSpace + reserve - paneWidth)
+    : 0;
+  /*
+   * Both give, in proportion to what each has to give.
+   *
+   * Taking it from the list alone would crush the column being written
+   * away from while the folders beside it kept every pixel — at a narrow
+   * window the list went to its floor and the rail never moved. Sharing it
+   * by how much room each has above its own floor takes more from whichever
+   * is roomier, and leaves neither one squashed on its own.
+   */
+  const listSlack = Math.max(0, listWidth - MIN_LIST_WIDTH);
+  const railSlack = railShowing
+    ? Math.max(0, railWidth - FOLDER_RAIL_MIN_WIDTH)
+    : 0;
+  const slack = listSlack + railSlack;
+  const taken = Math.min(overflowing, slack);
+  const listGiveaway = slack > 0 ? (taken * listSlack) / slack : 0;
+  const railGiveaway = slack > 0 ? (taken * railSlack) / slack : 0;
+  const shownListWidth = Math.round(listWidth - listGiveaway);
+  const shownRailWidth = Math.round(railWidth - railGiveaway);
+
   const [controlsWidth, startControlsResize] = useMailControlsWidth();
   /** Expanded left/right: chrome column keeps the sidebar's list width. */
   const splitChromeWidth =
@@ -3941,13 +4222,16 @@ export function MailPage({
   // Custom lists: any external participant in the list's people.
   // Inbox tabs: newest-first. Snoozed: soonest wake first.
   const visible = (
-    activeFolder ||
     // Every view that is a place rather than a slice of the inbox. `t.tab` is
     // only ever "people" or "other", so filtering by it here empties any of
     // these — which is exactly how Junk and Trash came back empty even with
     // the provider returning rows.
-    MAIL_OFF_TAB_VIEWS.includes(tab) ||
-    tab === "all"
+    //
+    // A folder is a place too, and it used to be in this list. But the two
+    // are different questions: the folder says which mail, the filter says
+    // whose, and a reader in Clients who wants only the people in their
+    // address book was being told to leave the folder to ask.
+    MAIL_OFF_TAB_VIEWS.includes(tab) || tab === "all"
       ? threadsForAccount
       : activeCustomList
         ? threadsForAccount.filter((t) =>
@@ -4449,6 +4733,120 @@ export function MailPage({
       );
     },
     [threads, removeThread, hideRemovedRows, unhideRows]
+  );
+
+  /**
+   * Delete every conversation with someone.
+   *
+   * `archivePerson` with the two things deleting adds: a pin and a cached
+   * body outlive an archived thread but not a deleted one, so both go with
+   * it, and the folder counts are told that something left.
+   *
+   * The caller asks first — this is the one action here that empties a list
+   * — and Trash is what makes the asking enough. Nothing is destroyed, so
+   * the answer to a mistake is the provider's Trash rather than an undo
+   * that has to reach across a dozen requests.
+   */
+  const trashPerson = React.useCallback(
+    async (row: PersonRow) => {
+      const targets = row.threads.map((t) => ({
+        account: t.account,
+        threadId: t.threadId,
+      }));
+      if (!targets.length) return;
+      const before = threads;
+
+      const wasOpen = selectedPersonKey === row.key;
+      const successor = successorAfterRemoving(
+        personRowOrderRef.current,
+        (r) => r.key === row.key
+      );
+
+      const targetKeys = targets.map((t) => threadKey(t));
+      for (const target of targets) {
+        unpinMailThread(target.account, target.threadId);
+        invalidateCachedMailThread(target.account, target.threadId);
+      }
+      for (const rowKey of targetKeys) removeThread(rowKey);
+      hideRemovedRows(targetKeys);
+      if (wasOpen) {
+        setSelected(null);
+        setSelectedPersonKey(successor ? successor.key : null);
+      }
+
+      const results = await Promise.allSettled(
+        targets.map((t) =>
+          apiJson("/api/mail/trash", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(t),
+          })
+        )
+      );
+      const failed = results.filter((r) => r.status === "rejected").length;
+      if (failed === targets.length) {
+        unhideRows(targetKeys);
+        setThreads(before);
+        toast.error(mailSay("couldNotDeletePersonMail", { name: row.name }));
+        return;
+      }
+      noteLeftOpenFolder(targets[0].account);
+      if (failed) {
+        toast.error(
+          mailSay("someCouldNotBeDeleted", {
+            failed,
+            count: targets.length,
+          })
+        );
+        return;
+      }
+      toast(
+        targets.length === 1
+          ? mailSay("conversationDeletedWith", { name: row.name })
+          : mailSay("conversationsDeletedWith", {
+              count: targets.length,
+              name: row.name,
+            }),
+        {
+          // One Undo for the batch, the way archiving does it. Trash is
+          // still where these have gone, and the dialog said so — this is
+          // the quick way back for the answer given half a second ago.
+          action: {
+            label: mailSay("undo"),
+            onClick: () => {
+              void (async () => {
+                try {
+                  await Promise.all(
+                    targets.map((t) =>
+                      apiJson("/api/mail/untrash", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify(t),
+                      })
+                    )
+                  );
+                  unhideRows(targetKeys);
+                  setThreads(before);
+                } catch (err) {
+                  toast.error(
+                    err instanceof Error ? err.message : mailSay("couldNotUndo")
+                  );
+                }
+              })();
+            },
+          },
+          duration: 8000,
+        }
+      );
+    },
+    [
+      threads,
+      removeThread,
+      hideRemovedRows,
+      unhideRows,
+      noteLeftOpenFolder,
+      selectedPersonKey,
+    ]
   );
 
   /**
@@ -5132,6 +5530,54 @@ export function MailPage({
   openThreadRef.current = openThread;
 
   /**
+   * What the right-click menu on a row asked the reader to do.
+   *
+   * Reply, forward, print and pop out all need the messages, and a row has
+   * a summary. So the thread is opened and the action travels with it; the
+   * reader does it as soon as it has something to do it to, and says so,
+   * which clears this. Held with the thread it belongs to, so an action
+   * meant for one conversation cannot land on the next one opened.
+   */
+  const [pendingRowAction, setPendingRowAction] = React.useState<{
+    account: string;
+    threadId: string;
+    action: MailThreadAction;
+  } | null>(null);
+
+  /**
+   * Everything the row's menu needs that the list itself cannot answer.
+   *
+   * One bundle rather than nine props written out twice, because the list
+   * is drawn in two places — grouped by date and grouped by person — and
+   * two copies of this is two chances for them to drift apart.
+   */
+  const rowMenuActions = React.useCallback(
+    (t: MailThreadSummary) => ({
+      onAction: (action: MailThreadAction) => {
+        openThread(t);
+        setPendingRowAction({
+          account: t.account,
+          threadId: t.threadId,
+          action,
+        });
+      },
+      folders,
+      onMoveToFolder: (folderName: string, create: boolean) =>
+        moveToFolder(t, folderName, create),
+      // Junk is a move, so it lives in the move menu — and only one way
+      // round at a time: out of junk from inside it, into junk from
+      // anywhere else.
+      onJunk:
+        tab === "junk" ? undefined : () => void setThreadJunk(t, true),
+      onNotJunk:
+        tab === "junk" ? () => void setThreadJunk(t, false) : undefined,
+      onRestore:
+        tab === "trash" ? () => void restoreFromTrash(t) : undefined,
+    }),
+    [folders, moveToFolder, openThread, restoreFromTrash, setThreadJunk, tab]
+  );
+
+  /**
    * A discard still inside its undo window when the window closes.
    *
    * Sending it beats losing it: the reader has had their chance to take it
@@ -5208,11 +5654,40 @@ export function MailPage({
     if (threads.length) syncMailPinSummaries(threads);
   }, [threads]);
 
-  // Pinned band: All + folder views only (not People/Other/Sent), never search.
+  /**
+   * Does this conversation belong to what the list is showing?
+   *
+   * The same question the list asks of every row — see `visible` above,
+   * which this follows. A folder and the views that are places of their
+   * own hold whatever they hold; the rest are slices of the inbox, and a
+   * slice is what a filter is.
+   */
+  const inCurrentSlice = React.useCallback(
+    (t: MailThreadSummary) => {
+      if (MAIL_OFF_TAB_VIEWS.includes(tab) || tab === "all") return true;
+      if (activeCustomList) return threadMatchesCustomList(t, activeCustomList);
+      return t.tab === tab;
+    },
+    [activeCustomList, tab]
+  );
+
+  /**
+   * Pinned conversations stand at the top wherever the list is the inbox.
+   *
+   * It used to be All and a folder alone, so a reader with In contacts
+   * chosen — or one of their own lists — pressed Pin, was told the thread
+   * was pinned, and watched nothing happen. The pin was kept; there was
+   * simply nowhere on screen for it to show.
+   *
+   * Only where the pinned thread belongs, though: a filter that quietly
+   * held something it excludes is not a filter. Sent, Drafts, Trash, Junk
+   * and Snoozed are places rather than slices, and a search answers with
+   * what it found and nothing else.
+   */
   const showPinnedBand =
     viewMode === "threads" &&
     !debouncedSearch &&
-    (tab === "all" || activeFolder != null);
+    (activeFolder != null || !MAIL_OFF_TAB_VIEWS.includes(tab));
 
   const pinnedThreads: MailThreadSummary[] = showPinnedBand
     ? pins
@@ -5225,6 +5700,7 @@ export function MailPage({
           if (activeFolder) return [];
           return [pin.summary];
         })
+        .filter(inCurrentSlice)
         .filter((t) =>
           accountPassesMailboxScope(
             t.account,
@@ -5344,6 +5820,23 @@ export function MailPage({
   const openPerson = (row: PersonRow) => {
     setComposing(false);
     setListExpanded(false);
+    /*
+      One thread is not a choice to make.
+
+      The person pane is a list of what is open with somebody, and a list
+      of one is a card the reader has to click to reach the only thing
+      behind it. So a single thread opens where the pane would have been,
+      and the pane is kept for the people there is actually something to
+      choose between.
+    */
+    if (row.threads.length === 1) {
+      // The person stays marked in the list — it is the row that was
+      // clicked — and the thread renders, because the reading pane asks
+      // about an open thread before it asks about a person.
+      setSelectedPersonKey(row.key);
+      openThread(row.threads[0]);
+      return;
+    }
     setSelected(null);
     setSelectedPersonKey(row.key);
   };
@@ -5398,7 +5891,7 @@ export function MailPage({
    * there is no rail to the left of the list to clear.
    */
   const listControlsLeft =
-    (!hideList && railShowing && !railOnRight ? railWidth + RAIL_GUTTER : 0) +
+    (!hideList && railShowing && !railOnRight ? shownRailWidth + RAIL_GUTTER : 0) +
     LIST_COLUMN_PAD;
   const listBorderClass =
     listPlacement === "left"
@@ -5532,7 +6025,20 @@ export function MailPage({
    * A folder being open beats a tab: opening Academia out of the rail
    * leaves `tab` on whatever it was, and Sent must not stay lit.
    */
-  const railSystemView = activeFolder
+  /**
+   * The last filter the list was read under.
+   *
+   * Trash, Sent and the rest are tabs in the same row as All and the custom
+   * lists, so going to one of them replaces the filter. The Inbox row has
+   * to put back what it replaced, or leaving the inbox and coming back
+   * would quietly change what the reader sees.
+   */
+  const lastListTabRef = React.useRef<MailListTab>("all");
+  React.useEffect(() => {
+    if (!MAIL_OFF_TAB_VIEWS.includes(tab)) lastListTabRef.current = tab;
+  }, [tab]);
+
+  const railSystemView: MailSystemView = activeFolder
     ? null
     : tab === "sent"
       ? "sent"
@@ -5542,7 +6048,11 @@ export function MailPage({
           ? "trash"
           : tab === "junk"
             ? "junk"
-            : null;
+            : tab === "snoozed"
+              ? null
+              : // Anything else is the mail itself, under whichever filter
+                // the reader has chosen. That is the inbox.
+                "inbox";
 
   const folderRail = (
     <MailFolderRail
@@ -5559,7 +6069,6 @@ export function MailPage({
       draftCount={drafts.length || null}
       draggingAccount={draggingAccount}
       side={railOnRight ? "right" : "left"}
-      onClose={() => setRailOpen(false)}
       onOpenFolder={(account, name) => {
         const known = accountFolders.find(
           (f) =>
@@ -5595,11 +6104,14 @@ export function MailPage({
         setSelectedPersonKey(null);
         setTab("trash");
       }}
-      onOpenJunk={() => {
+      onOpenInbox={() => {
         setActiveFolder(null);
         setSelected(null);
         setSelectedPersonKey(null);
-        setTab("junk");
+        // Back to the filter the reader was last reading under, not to a
+        // fixed one: leaving the inbox for Trash and coming back should
+        // find it as it was left.
+        setTab(lastListTabRef.current);
       }}
       onDropThread={(account, folderName) => {
         // Read before the drag is cleared: the window-level dragend that
@@ -5619,12 +6131,6 @@ export function MailPage({
         clearMailThreadDrag();
         if (!thread) return;
         return trash(thread);
-      }}
-      onDropJunk={() => {
-        const thread = draggingMailThread();
-        clearMailThreadDrag();
-        if (!thread) return;
-        return setThreadJunk(thread, true);
       }}
       onCreateFolder={async (account, name) => {
         const json = await apiJson<{ folder: MailFolder }>(
@@ -5718,7 +6224,299 @@ export function MailPage({
     />
   );
 
+  /**
+   * The folders button, the funnel, and the filters it unrolls.
+   *
+   * Its own thing, because it belongs to both headers: the mailbox row
+   * above the inbox, and the name of an open folder. What is being
+   * filtered changes; that there is filtering does not.
+   */
+  /**
+   * Is a filter narrowing the list, and is the row of them on screen?
+   *
+   * A filter is one of the slices — All, In contacts, Other, a list of the
+   * reader's own — and All is the one that narrows nothing. Trash and Sent
+   * are not filters at all: they are places, chosen elsewhere, and the
+   * funnel has nothing to say about them.
+   */
+  const filterIsOn = !MAIL_OFF_TAB_VIEWS.includes(tab) && tab !== "all";
+  const filtersShowing = filterRowOpen || filterIsOn;
+
+  /**
+   * The last filter that was on, so the funnel can put it back.
+   *
+   * The button turns filtering off and on, and off and on again should
+   * leave the list where it was: a reader who works in one of their own
+   * lists and looks at everything for a moment is not choosing All, they
+   * are glancing away from Familie.
+   *
+   * Kept for the session only. A filter still on when the app is closed is
+   * still on when it opens, because the chosen tab is stored anyway.
+   */
+  const lastFilterRef = React.useRef<MailListTab | null>(null);
+  React.useEffect(() => {
+    if (filterIsOn) lastFilterRef.current = tab;
+  }, [filterIsOn, tab]);
+
+  /**
+   * The way to the folders.
+   *
+   * It stands at the head of the mailbox row, where the eye starts: the
+   * folders belong to the mailboxes, and the row that names them is the
+   * row to put them beside. With one mailbox there is no such row — see
+   * below — so it falls back to the head of the filter row, in front of
+   * the funnel, and looks the same in either place.
+   *
+   * It stays while the rail is open, lit the way the funnel is lit while
+   * the filters are showing. Pressing it again puts the rail away: it is
+   * the only way out, and a control that vanished once it had worked
+   * would leave a gap in the row and the rail with no way to close it.
+   */
+  const foldersButton = (
+    <MailRowButton
+      icon={Folder}
+      label={t("folders")}
+      active={railShowing}
+      aria-expanded={railShowing}
+      onNavy={chromeDark}
+      onClick={() => setRailOpen(!railShowing)}
+      onDragEnter={(e: React.DragEvent) => {
+        // Dragging a conversation at the folders asks for the folders.
+        // It opens and stays open — the rail is not a menu that springs
+        // shut again once the drop has landed, and a drag never closes it.
+        if (!isMailThreadDrag(e.dataTransfer)) return;
+        e.preventDefault();
+        setRailOpen(true);
+      }}
+      onDragOver={(e: React.DragEvent) => {
+        if (!isMailThreadDrag(e.dataTransfer)) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = "move";
+      }}
+    />
+  );
+
+  /**
+   * Is the mailbox row on screen to hold it?
+   *
+   * One mailbox needs no row to choose between mailboxes, and a folder
+   * view has no row either — it is one mailbox's folder by definition.
+   */
+  const accountTabsShowing = accountEmails.length > 1 && !activeFolder;
+
+  const filterRow = (
+    <div className="mt-2 flex items-center gap-2">
+      {accountTabsShowing ? null : foldersButton}
+      <MailRowButton
+        icon={Funnel}
+        label={t("filterLabel")}
+        // Lit while the filters are showing, and only then. Lighting it
+        // because a filter happened to be on made it look like the chosen
+        // one of a pair of buttons, which it is not.
+        active={filtersShowing}
+        aria-expanded={filtersShowing}
+        onNavy={chromeDark}
+        /*
+          Putting the row away is turning the filter off.
+ 
+          A filter the reader cannot see is a list that is missing mail for
+          no reason they can point at — so a filter that is on keeps its row
+          on screen, and this button, which used to be able to hide it,
+          takes it back to All instead. With All showing there is nothing to
+          hide, and it folds away as it always did.
+        */
+        onClick={() => {
+          if (!filtersShowing) {
+            setFilterRowOpen(true);
+            // Back to the one that was on when they were last put away —
+            // if it is still there to go back to, and if nothing else has
+            // taken the list over in the meantime. Opening Trash and then
+            // pressing this means "show me the filters", not "leave Trash".
+            const last = lastFilterRef.current;
+            if (last && tab === "all" && tabOrder.includes(last)) setTab(last);
+            return;
+          }
+          if (filterIsOn) setTab("all");
+          setFilterRowOpen(false);
+        }}
+      />
+
+      {filtersShowing ? (
+      /* The half-rem of padding, and the same again in negative margin, is
+         room for a chip's own outline. A scroller clips at its box, and the
+         first chip sat exactly on that edge — so the left of its border was
+         shaved off, which read as a chip half out of the row. The margin
+         puts the row back where it was. */
+      <div className="-mx-0.5 min-w-0 flex-1 overflow-x-auto px-0.5 py-0.5 [scrollbar-width:thin]">
+        <DndContext
+          sensors={tabReorderSensors}
+          collisionDetection={closestCenter}
+          onDragStart={() => {
+            tabReorderSuppressClick.current = true;
+          }}
+          onDragEnd={(event) => {
+            const { active, over } = event;
+            if (over && active.id !== over.id) {
+              const oldIndex = tabOrder.indexOf(active.id as MailListTab);
+              const newIndex = tabOrder.indexOf(over.id as MailListTab);
+              if (oldIndex >= 0 && newIndex >= 0) {
+                setTabOrder(arrayMove(tabOrder, oldIndex, newIndex));
+              }
+            }
+            // Drop can synthesize a click — ignore that one.
+            window.setTimeout(() => {
+              tabReorderSuppressClick.current = false;
+            }, 0);
+          }}
+        >
+          <SortableContext
+            items={tabOrder}
+            strategy={horizontalListSortingStrategy}
+          >
+            <div className="flex w-max items-center gap-2 py-0.5 pr-2">
+              {tabOrder.map((id) => {
+                const listId = parseCustomListTabId(id);
+                const custom = listId
+                  ? customListById.get(listId)
+                  : undefined;
+                const label = custom
+                  ? custom.name
+                  : mailBuiltinTabLabels(t)[id] ?? id;
+                return (
+                  <SortableMailListTab
+                    key={id}
+                    id={id}
+                    label={label}
+                    active={tab === id}
+                    suppressClick={tabReorderSuppressClick}
+                    onSelect={() => {
+                      // The folder stays. A filter narrows what is on
+                      // screen; leaving the folder is what Back is for.
+                      // The first press chooses the list. Pressing the one
+                      // already chosen is what opens it for editing: a
+                      // reader switching between two lists was being handed
+                      // the editor every time they switched.
+                      const alreadyOn = tab === id;
+                      setTab(id);
+                      if (!alreadyOn) return;
+                      // A list of your own opens whole; a built-in filter
+                      // opens at its schedule, which is all there is to it.
+                      if (custom) setListEditor(custom.id);
+                      else if (MAIL_LIST_TABS.includes(id)) setListEditor(id);
+                    }}
+                    onEdit={
+                      custom ? () => setListEditor(custom.id) : undefined
+                    }
+                  />
+                );
+              })}
+              {tab === "sent" ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveFolder(null);
+                    setTab("sent");
+                  }}
+                  className="shrink-0 whitespace-nowrap border-b-[3px] border-[var(--mail-tab-active)] pb-0.5 font-medium text-[var(--mail-chrome-fg)]"
+                >
+                  {mailBuiltinTabLabels(t).sent}
+                </button>
+              ) : null}
+              {tab === "junk" ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveFolder(null);
+                    setTab("junk");
+                  }}
+                  className="shrink-0 whitespace-nowrap border-b-[3px] border-[var(--mail-tab-active)] pb-0.5 font-medium text-[var(--mail-chrome-fg)]"
+                >
+                  {mailBuiltinTabLabels(t).junk}
+                </button>
+              ) : null}
+              {tab === "trash" ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveFolder(null);
+                    setTab("trash");
+                  }}
+                  className="shrink-0 whitespace-nowrap border-b-[3px] border-[var(--mail-tab-active)] pb-0.5 font-medium text-[var(--mail-chrome-fg)]"
+                >
+                  {mailBuiltinTabLabels(t).trash}
+                </button>
+              ) : null}
+              {tab === "drafts" ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveFolder(null);
+                    setTab("drafts");
+                  }}
+                  className="shrink-0 whitespace-nowrap border-b-[3px] border-[var(--mail-tab-active)] pb-0.5 font-medium text-[var(--mail-chrome-fg)]"
+                >
+                  {mailBuiltinTabLabels(t).drafts}
+                </button>
+              ) : null}
+              {tab === "snoozed" ||
+              (snoozedCount != null && snoozedCount > 0) ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveFolder(null);
+                    setTab("snoozed");
+                  }}
+                  className={cn(
+                    "shrink-0 whitespace-nowrap border-b-[3px] pb-0.5 font-medium",
+                    tab === "snoozed"
+                      ? "border-[var(--mail-tab-active)] text-[var(--mail-chrome-fg)]"
+                      : "border-transparent text-[var(--mail-chrome-muted)] hover:text-[var(--mail-chrome-fg)]"
+                  )}
+                >
+                  {mailBuiltinTabLabels(t).snoozed}
+                </button>
+              ) : null}
+              <button
+                type="button"
+                title={t("newList")}
+                aria-label={t("newListTab")}
+                aria-expanded={listEditor != null}
+                onClick={() =>
+                  setListEditor((prev) =>
+                    prev == null ? "create" : null
+                  )
+                }
+                className={cn(
+                  // Transparent bottom border keeps height aligned with tabs;
+                  // active state is the inset square (not ring — overflow-x
+                  // on the tab scroller would clip a ring's top edge).
+                  "flex shrink-0 items-center border-b-[3px] border-transparent pb-0.5",
+                  listEditor != null
+                    ? "text-teal-700"
+                    : "text-[var(--mail-chrome-muted)] hover:text-[var(--mail-chrome-fg)]"
+                )}
+              >
+                <span
+                  className={cn(
+                    "flex h-5 w-5 items-center justify-center rounded",
+                    listEditor != null
+                      ? "border border-teal-600"
+                      : "border border-transparent"
+                  )}
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                </span>
+              </button>
+            </div>
+          </SortableContext>
+        </DndContext>
+      </div>
+      ) : null}
+    </div>
+  );
+
   const listTabsOrFolder = activeFolder ? (
+    <>
     <FolderViewHeader
       onNavy={chromeDark}
       folder={(() => {
@@ -5755,13 +6553,21 @@ export function MailPage({
         setSelectedPersonKey(null);
       }}
     />
+    {/* The filters stay. A folder says which mail this is; a filter says
+        whose, and the two are different questions — a reader in Clients
+        who wants only the people in their address book was being told to
+        leave the folder to ask. The mailbox row does not stay: a folder
+        is on one mailbox already. */}
+    <div className="text-sm">{filterRow}</div>
+    </>
   ) : (
     <div
       className={cn(
         "text-sm",
         // In the controls column (normal + expanded list); top/bottom layout
-        // mounts tabs above the thread list instead.
-        !listVertical && "mt-3"
+        // mounts tabs above the thread list instead. The whole gap under
+        // New email is this one number — the row above adds nothing.
+        !listVertical && "mt-[13px]"
       )}
     >
       {/*
@@ -5776,236 +6582,48 @@ export function MailPage({
         reader who wants everything from one mailbox, which is most of the
         time, never sees them.
       */}
-      <div>
-        <MailAccountTabs
-          accounts={accountEmails}
-          labels={accountLabels}
-          isOutlookAccount={isOutlookAccount}
-          selected={mailboxScopeEmails}
-          onSelect={setMailboxScopeEmails}
-          onReorder={(next) => {
-            // The row writes the arrangement itself, All among the mailboxes.
-            // This is the list answering at once, before the store's own
-            // event comes back around.
-            setAccountEmails(next);
-          }}
-          onNavy={chromeDark}
-        />
+      {/*
+        One mailbox needs no row to choose it.
+
+        The row would be "All" beside the single mailbox — two tabs for the
+        same mail, and a question the reader cannot answer wrongly. It
+        appears when a second mailbox is connected, which is when there is
+        something to pick between.
+      */}
+      {accountTabsShowing ? (
+      <div className="flex items-center gap-2">
+        {foldersButton}
+        {/* The row scrolls when the mailboxes outrun it; the button beside it does not move. */}
+        <div className="min-w-0 flex-1">
+          <MailAccountTabs
+            accounts={accountEmails}
+            labels={accountLabels}
+            isOutlookAccount={isOutlookAccount}
+            selected={mailboxScopeEmails}
+            onSelect={setMailboxScopeEmails}
+            onReorder={(next) => {
+              // The row writes the arrangement itself, All among the mailboxes.
+              // This is the list answering at once, before the store's own
+              // event comes back around.
+              setAccountEmails(next);
+            }}
+            onNavy={chromeDark}
+          />
+        </div>
       </div>
+      ) : null}
 
       {/*
-        Under the tabs, not beside them.
+        The filters go under the tabs, not beside them.
 
-        Beside them they were two more things competing for a sidebar's worth
-        of width with the mailboxes, which are the row's whole point — and the
-        first thing to be squeezed out was the mailbox at the end. Underneath,
-        the tabs get the width and these two get their names.
+        Beside them they competed for a sidebar's worth of width with the
+        mailboxes, which are that row's whole point, and the first thing to
+        be squeezed out was the mailbox at the end. Underneath, the tabs get
+        the width. The way to the folders is the exception and stands at the
+        head of the tab row: it is one glyph, it does not grow, and the
+        folders are the mailboxes' own.
       */}
-      <div className="mt-2 flex items-center gap-2">
-        {!railShowing ? (
-          <MailRowButton
-            icon={Folder}
-            label={t("folders")}
-            onNavy={chromeDark}
-            onClick={() => setRailOpen(true)}
-            onDragEnter={(e: React.DragEvent) => {
-              // Dragging a conversation at the folders asks for the folders.
-              // It opens and stays open — the rail is not a menu that springs
-              // shut again once the drop has landed.
-              if (!isMailThreadDrag(e.dataTransfer)) return;
-              e.preventDefault();
-              setRailOpen(true);
-            }}
-            onDragOver={(e: React.DragEvent) => {
-              if (!isMailThreadDrag(e.dataTransfer)) return;
-              e.preventDefault();
-              e.dataTransfer.dropEffect = "move";
-            }}
-          />
-        ) : null}
-        <MailRowButton
-          icon={Funnel}
-          label={t("filterLabel")}
-          // Lit while the filters are showing, and only then. Lighting it
-          // because a filter happened to be on made it look like the chosen
-          // one of a pair of buttons, which it is not.
-          active={filterRowOpen}
-          aria-expanded={filterRowOpen}
-          onNavy={chromeDark}
-          onClick={() => setFilterRowOpen(!filterRowOpen)}
-        />
-
-        {filterRowOpen ? (
-        /* The half-rem of padding, and the same again in negative margin, is
-           room for a chip's own outline. A scroller clips at its box, and the
-           first chip sat exactly on that edge — so the left of its border was
-           shaved off, which read as a chip half out of the row. The margin
-           puts the row back where it was. */
-        <div className="-mx-0.5 min-w-0 flex-1 overflow-x-auto px-0.5 py-0.5 [scrollbar-width:thin]">
-          <DndContext
-            sensors={tabReorderSensors}
-            collisionDetection={closestCenter}
-            onDragStart={() => {
-              tabReorderSuppressClick.current = true;
-            }}
-            onDragEnd={(event) => {
-              const { active, over } = event;
-              if (over && active.id !== over.id) {
-                const oldIndex = tabOrder.indexOf(active.id as MailListTab);
-                const newIndex = tabOrder.indexOf(over.id as MailListTab);
-                if (oldIndex >= 0 && newIndex >= 0) {
-                  setTabOrder(arrayMove(tabOrder, oldIndex, newIndex));
-                }
-              }
-              // Drop can synthesize a click — ignore that one.
-              window.setTimeout(() => {
-                tabReorderSuppressClick.current = false;
-              }, 0);
-            }}
-          >
-            <SortableContext
-              items={tabOrder}
-              strategy={horizontalListSortingStrategy}
-            >
-              <div className="flex w-max items-center gap-2 py-0.5 pr-2">
-                {tabOrder.map((id) => {
-                  const listId = parseCustomListTabId(id);
-                  const custom = listId
-                    ? customListById.get(listId)
-                    : undefined;
-                  const label = custom
-                    ? custom.name
-                    : mailBuiltinTabLabels(t)[id] ?? id;
-                  return (
-                    <SortableMailListTab
-                      key={id}
-                      id={id}
-                      label={label}
-                      active={tab === id}
-                      suppressClick={tabReorderSuppressClick}
-                      onSelect={() => {
-                        setActiveFolder(null);
-                        // The first press chooses the list. Pressing the one
-                        // already chosen is what opens it for editing: a
-                        // reader switching between two lists was being handed
-                        // the editor every time they switched.
-                        const alreadyOn = tab === id;
-                        setTab(id);
-                        if (!alreadyOn) return;
-                        // A list of your own opens whole; a built-in filter
-                        // opens at its schedule, which is all there is to it.
-                        if (custom) setListEditor(custom.id);
-                        else if (MAIL_LIST_TABS.includes(id)) setListEditor(id);
-                      }}
-                      onEdit={
-                        custom ? () => setListEditor(custom.id) : undefined
-                      }
-                    />
-                  );
-                })}
-                {tab === "sent" ? (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setActiveFolder(null);
-                      setTab("sent");
-                    }}
-                    className="shrink-0 whitespace-nowrap border-b-[3px] border-[var(--mail-tab-active)] pb-0.5 font-medium text-[var(--mail-chrome-fg)]"
-                  >
-                    {mailBuiltinTabLabels(t).sent}
-                  </button>
-                ) : null}
-                {tab === "junk" ? (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setActiveFolder(null);
-                      setTab("junk");
-                    }}
-                    className="shrink-0 whitespace-nowrap border-b-[3px] border-[var(--mail-tab-active)] pb-0.5 font-medium text-[var(--mail-chrome-fg)]"
-                  >
-                    {mailBuiltinTabLabels(t).junk}
-                  </button>
-                ) : null}
-                {tab === "trash" ? (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setActiveFolder(null);
-                      setTab("trash");
-                    }}
-                    className="shrink-0 whitespace-nowrap border-b-[3px] border-[var(--mail-tab-active)] pb-0.5 font-medium text-[var(--mail-chrome-fg)]"
-                  >
-                    {mailBuiltinTabLabels(t).trash}
-                  </button>
-                ) : null}
-                {tab === "drafts" ? (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setActiveFolder(null);
-                      setTab("drafts");
-                    }}
-                    className="shrink-0 whitespace-nowrap border-b-[3px] border-[var(--mail-tab-active)] pb-0.5 font-medium text-[var(--mail-chrome-fg)]"
-                  >
-                    {mailBuiltinTabLabels(t).drafts}
-                  </button>
-                ) : null}
-                {tab === "snoozed" ||
-                (snoozedCount != null && snoozedCount > 0) ? (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setActiveFolder(null);
-                      setTab("snoozed");
-                    }}
-                    className={cn(
-                      "shrink-0 whitespace-nowrap border-b-[3px] pb-0.5 font-medium",
-                      tab === "snoozed"
-                        ? "border-[var(--mail-tab-active)] text-[var(--mail-chrome-fg)]"
-                        : "border-transparent text-[var(--mail-chrome-muted)] hover:text-[var(--mail-chrome-fg)]"
-                    )}
-                  >
-                    {mailBuiltinTabLabels(t).snoozed}
-                  </button>
-                ) : null}
-                <button
-                  type="button"
-                  title={t("newList")}
-                  aria-label={t("newListTab")}
-                  aria-expanded={listEditor != null}
-                  onClick={() =>
-                    setListEditor((prev) =>
-                      prev == null ? "create" : null
-                    )
-                  }
-                  className={cn(
-                    // Transparent bottom border keeps height aligned with tabs;
-                    // active state is the inset square (not ring — overflow-x
-                    // on the tab scroller would clip a ring's top edge).
-                    "flex shrink-0 items-center border-b-[3px] border-transparent pb-0.5",
-                    listEditor != null
-                      ? "text-teal-700"
-                      : "text-[var(--mail-chrome-muted)] hover:text-[var(--mail-chrome-fg)]"
-                  )}
-                >
-                  <span
-                    className={cn(
-                      "flex h-5 w-5 items-center justify-center rounded",
-                      listEditor != null
-                        ? "border border-teal-600"
-                        : "border border-transparent"
-                    )}
-                  >
-                    <Plus className="h-3.5 w-3.5" />
-                  </span>
-                </button>
-              </div>
-            </SortableContext>
-          </DndContext>
-        </div>
-        ) : null}
-      </div>
+      {filterRow}
       <MailCustomListEditor
         open={listEditor != null}
         onCancel={() => setListEditor(null)}
@@ -6067,7 +6685,8 @@ export function MailPage({
                 const tabId = customListTabId(editingList.id);
                 deleteCustomList(editingList.id);
                 setTabOrder(tabOrder.filter((id) => id !== tabId));
-                if (tab === tabId) setTab("people");
+                // The list being read is gone; All is what is left.
+                if (tab === tabId) setTab("all");
                 setListEditor(null);
               }
             : undefined
@@ -6101,7 +6720,7 @@ export function MailPage({
           `deep` makes empty chrome draggable; inputs stay interactive. */}
       <div
         data-tauri-drag-region="deep"
-        className="mail-titlebar relative flex h-11 shrink-0 items-center gap-3 border-b bg-[var(--mail-chrome)]"
+        className="mail-titlebar mail-chrome-strip relative flex h-11 shrink-0 items-center gap-3 border-b bg-[var(--mail-chrome)]"
         style={{
           borderColor: "var(--mail-chrome-border)",
           // Where the row stops. A shell that puts window buttons at the
@@ -6166,7 +6785,10 @@ export function MailPage({
             className={cn(
               "mail-titlebar-search",
               // h-7 (~28px) centers with traffic lights in the 44px strip.
-              "relative flex h-7 min-w-0 flex-1 items-center rounded-full border border-stone-200 bg-white shadow-sm",
+              // Its own colours, not stone: on the dark theme the blanket
+              // rewrite made this the same shade as the bar it sits in, so
+              // the box a reader types into had no edges.
+              "relative flex h-7 min-w-0 flex-1 items-center rounded-full border border-[var(--mail-field-border-soft)] bg-[var(--mail-field-bg)] shadow-sm",
               "focus-within:ring-2 focus-within:ring-[var(--mail-title-search-ring)]"
             )}
           >
@@ -6193,7 +6815,7 @@ export function MailPage({
                 tab,
                 t,
               })}
-              className="h-full min-w-0 flex-1 border-0 bg-transparent py-1 pl-2 pr-8 text-[13px] text-stone-800 outline-none placeholder:text-stone-400 shadow-none [&::-webkit-search-cancel-button]:hidden"
+              className="h-full min-w-0 flex-1 border-0 bg-transparent py-1 pl-2 pr-8 text-[13px] text-[var(--mail-chrome-fg)] outline-none placeholder:text-[var(--mail-placeholder)] shadow-none [&::-webkit-search-cancel-button]:hidden"
             />
             {search ? (
               <button
@@ -6221,7 +6843,7 @@ export function MailPage({
       {!hideList ? (
         <div
           style={{
-            width: railShowing ? railWidth : 0,
+            width: railShowing ? shownRailWidth : 0,
             order: railOnRight ? 3 : 1,
           }}
           className={cn(
@@ -6262,7 +6884,7 @@ export function MailPage({
               "absolute inset-y-0",
               railOnRight ? "left-0" : "right-0"
             )}
-            style={{ width: railWidth }}
+            style={{ width: shownRailWidth }}
           >
             {folderRail}
           </div>
@@ -6302,12 +6924,19 @@ export function MailPage({
       ) : null}
       <div
         className={cn(
-          // What shows through the transparent resize gutter, so it has to
-          // be what is on both sides of it. That was white while the reader
-          // was white; with the reader on cream it was a white stripe down
-          // the join. The list's own border-r is what stops the cream
-          // bleeding past the list — not a change of color here.
-          "flex min-h-0 min-w-0 flex-1 overflow-hidden bg-[var(--mail-thread)]",
+          /*
+            What shows through the transparent resize gutter, so it has to
+            be what is on both sides of it — the chrome, which is what the
+            list is painted in and what the reader's own frame is.
+            
+            It has been wrong twice in the same way: white while the reader
+            was white, then the reading surface once that stepped away from
+            the chrome, which on the dark theme is lighter than either
+            neighbour and read as a lit strip down the join. The list's own
+            border-r is what separates the two; this is only the colour
+            behind a 4px gap.
+          */
+          "flex min-h-0 min-w-0 flex-1 overflow-hidden bg-[var(--mail-thread-chrome)]",
           listVertical ? "flex-col" : "flex-row"
         )}
         // Before the rail when the rail is on the right; after it otherwise.
@@ -6334,7 +6963,7 @@ export function MailPage({
             ? undefined
             : listVertical
               ? { height: listHeight }
-              : { width: listWidth }),
+              : { width: shownListWidth }),
           opacity: listNearSnap ? 0.45 : 1,
           transition: listNearSnap ? undefined : "opacity 120ms ease",
         }}
@@ -6381,19 +7010,33 @@ export function MailPage({
           className={cn(
             // Always a column flex so the New email control is a flex item
             // (avoids a ~3px inline-flex whitespace offset in block layout).
-            "flex flex-col px-5",
+            "mail-chrome-strip flex flex-col px-5",
             listSplit
               ? "shrink-0 overflow-y-auto border-r border-[var(--mail-chrome-border)] bg-[var(--mail-chrome)] pb-3 pt-2"
               : "pb-1 pt-2"
           )}
           style={listSplit ? { width: splitChromeWidth } : undefined}
+          /* The whole head of the list, not the first row of it.
+
+             A double click on a bar of controls is how a window is opened
+             out on a Mac, and the reader aims at whatever empty chrome is
+             nearest — the space under the mailbox tabs as readily as the
+             space beside Sync. With only the top row listening, most of
+             what looks like the same bar did nothing.
+
+             Not on a control: a double click on the expand button is two
+             presses of it, and that is already an answer. */
+          onDoubleClick={(e) => {
+            if (isInteractiveDoubleClickTarget(e.target)) return;
+            toggleListExpanded();
+          }}
         >
           {/* h-11 + pt-2 on the column match ThreadPane's action strip so
               New email / Sync share a midline with Reply / Archive / ….
               Settings + density live in the title bar. */}
-          {/* mb-1: the tab row under this brings its own mt-3, so the gap
-              here was two spacings stacked and read as a gap twice over. */}
-          <div className="-ml-[4px] mb-1 flex h-11 items-center gap-1">
+          {/* No margin under this row: what follows brings its own, and two
+              stacked read as a gap twice over. */}
+          <div className="-ml-[4px] flex h-11 items-center gap-1">
             <Button
               type="button"
               title={t("newEmail")}
@@ -6402,8 +7045,21 @@ export function MailPage({
               className={cn(
                 // flex overrides Button's inline-flex so it sits flush in the row.
                 // h-9 matches ThreadAction; keep padding inside that height.
-                "flex h-9 max-w-[9rem] flex-1 gap-1.5 rounded-xl px-3 py-0 text-sm font-semibold shadow-none",
-                chromeDark && "bg-white text-stone-800 hover:bg-white/90"
+                // A pill, and the same one the thread's Reply is.
+                "flex h-9 max-w-[9rem] flex-1 gap-1.5 rounded-full px-3 py-0 text-sm font-semibold shadow-none",
+                /*
+                  Not `bg-white text-stone-800`, which is what this asked
+                  for and never got: the shell rewrites both of those for
+                  the dark theme, so the one button meant to be the thing
+                  you press came out the same navy as the page behind it.
+
+                  A lifted slate rather than white or cream: on a dark page
+                  those are too big a jump to make with a button, and the
+                  eye reads a hole rather than a surface. The same three
+                  the thread's Reply and Forward use — see --mail-action.
+                */
+                chromeDark &&
+                  "border border-[var(--mail-action-border)] bg-[var(--mail-action)] text-[var(--mail-action-fg)] hover:bg-[var(--mail-action-hover)]"
               )}
               onPointerDown={beginNativeWindowDragOnMove}
               onClick={() => startCompose()}
@@ -6548,7 +7204,14 @@ export function MailPage({
             its own, over the network, by its own provider. That is why it
             takes as long as it does and why rows land in bursts.
           */}
-          {debouncedSearch && (loadingList || refreshing) && !listNarrow ? (
+          {/* Not before the first row. Until then the list below is saying
+              the same thing in more words — one wait, said once. This one
+              is for what is still out *while* there is something to read,
+              which is the case nobody was told about. */}
+          {debouncedSearch &&
+          (loadingList || refreshing) &&
+          !listNarrow &&
+          (threads.length > 0 || pinnedThreads.length > 0) ? (
             /*
               Chrome colors, not white. This was written for a list that sat
               on the navy chrome, and on the cream one it was white text on
@@ -6942,6 +7605,7 @@ export function MailPage({
                           onTrash={
                             tab === "trash" ? undefined : () => void trash(t)
                           }
+                          {...rowMenuActions(t)}
                           dragKind="pin"
                         />
                       ))}
@@ -7062,6 +7726,7 @@ export function MailPage({
                           onTrash={
                             tab === "trash" ? undefined : () => void trash(t)
                           }
+                          {...rowMenuActions(t)}
                           dragKind="folder"
                         />
                       ))}
@@ -7166,13 +7831,17 @@ export function MailPage({
         // No overflow clip here — the action band must paint over the resize
         // gutter to the list border. Message scrolling is on ThreadPane.
         //
-        // The reader's cream, not the pane's white: everything in here is the
-        // reader, and the two that draw a message — ThreadPane and the
-        // composer — already paint this same color over the top. What it
-        // changes is the states that draw nothing much: the resting picture,
-        // the wait for a first inbox, the note that no mailbox is connected.
-        // Those were the one place the old white still showed through.
-        className="flex min-h-0 min-w-0 flex-1 flex-col bg-[var(--mail-thread)]"
+        /*
+          The chrome, which is what the mailbox list beside it is painted in.
+          
+          Only three states ever show this: the resting picture, the wait for
+          a first inbox, and the note that no mailbox is connected. Anything
+          that draws a message — the thread, the composer — paints the
+          reading surface over the top of it. So what this colour is for is
+          the app at rest, and at rest the two halves of the window should
+          be the one colour, which is what light has always done.
+        */
+        className="flex min-h-0 min-w-0 flex-1 flex-col bg-[var(--mail-thread-chrome)]"
         style={{ order: listFirst ? 3 : 1 }}
       >
         {composing ? (
@@ -7196,14 +7865,20 @@ export function MailPage({
           />
         ) : selected ? (
           <>
-            {viewMode === "people" && selectedPerson ? (
+            {/* The way back to a list worth going back to. With one thread
+                open there is nothing behind this but the thread itself —
+                which is why that case now opens straight into the reader
+                (see openPerson) — so the row is only in the way. */}
+            {viewMode === "people" &&
+            selectedPerson &&
+            selectedPerson.threads.length > 1 ? (
               <button
                 type="button"
                 onClick={() => setSelected(null)}
-                className="flex items-center gap-1.5 border-b border-stone-200 px-8 py-2 text-left text-xs text-stone-500 hover:bg-stone-50 hover:text-stone-800"
+                className="flex items-center gap-1.5 border-b border-[var(--mail-thread-chrome-line)] bg-[var(--mail-thread-chrome)] px-8 py-2 text-left text-xs text-[var(--mail-thread-muted)] hover:text-[var(--mail-chrome-fg)]"
               >
                 <ArrowLeft className="h-3.5 w-3.5" />
-                All threads with {selectedPerson.name}
+                {t("allThreadsWith", { name: selectedPerson.name })}
               </button>
             ) : null}
             <ThreadPane
@@ -7255,6 +7930,7 @@ export function MailPage({
                 if (selectedRow) togglePin(selectedRow);
                 else toast("Open it from the list to pin it");
               }}
+              pinned={pinKeySet.has(threadKey(selected))}
               forwardMessageId={
                 pendingForward &&
                 pendingForward.account === selected.account &&
@@ -7263,6 +7939,14 @@ export function MailPage({
                   : undefined
               }
               onForwardStarted={() => setPendingForward(null)}
+              pendingAction={
+                pendingRowAction &&
+                pendingRowAction.account === selected.account &&
+                pendingRowAction.threadId === selected.threadId
+                  ? pendingRowAction.action
+                  : undefined
+              }
+              onPendingActionDone={() => setPendingRowAction(null)}
               refreshToken={
                 threads.find((t) => threadKey(t) === threadKey(selected))
                   ?.lastAt
@@ -7351,7 +8035,17 @@ export function MailPage({
             />
           </>
         ) : viewMode === "people" && selectedPerson ? (
-          <PersonPane row={selectedPerson} onOpenThread={openThread} />
+          <PersonPane
+            row={selectedPerson}
+            onOpenThread={openThread}
+            zoom={zoom}
+            onZoomAdjust={adjustZoom}
+            onArchiveAll={() => void archivePerson(selectedPerson)}
+            onDeleteAll={() => void trashPerson(selectedPerson)}
+            onToggleRead={(rows, label) => void toggleRead(rows, label)}
+            onArchiveThread={(t) => void archive(t)}
+            onTrashThread={(t) => void trash(t)}
+          />
         ) : !accountEmails.length ? (
           <div className="flex flex-1 flex-col items-center justify-center gap-2 px-6 text-center">
             <p className="text-sm font-medium text-stone-600">
@@ -7361,27 +8055,17 @@ export function MailPage({
               {t("noMailboxHint")}
             </p>
           </div>
-        ) : loadingList && !threads.length && !pinnedThreads.length ? (
-          <div
-            className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center"
-            role="status"
-            aria-busy="true"
-            aria-live="polite"
-          >
-            <Loader2
-              className="h-5 w-5 animate-spin text-stone-400"
-              aria-hidden
-            />
-            <div>
-              <p className="text-sm font-medium text-stone-600">
-                {t("loadingInbox")}
-              </p>
-              <p className="mt-1 text-sm text-stone-400">
-                {t("loadingInboxHint")}
-              </p>
-            </div>
-          </div>
         ) : (
+          /*
+            No spinner here while the list loads.
+
+            This pane holds the message being read, and nothing is being
+            read yet — so it was spinning about somebody else's wait. Three
+            of them ran at once during a search, and the list is where the
+            wait belongs: it is the list that is filling up. What stands
+            here instead is the same thing that stands here when nothing is
+            open, which is the truth of it.
+          */
           <MailRestPanel />
         )}
       </div>
@@ -7413,11 +8097,41 @@ export function MailPage({
 function PersonPane({
   row,
   onOpenThread,
+  zoom,
+  onZoomAdjust,
+  onArchiveAll,
+  onDeleteAll,
+  onToggleRead,
+  onArchiveThread,
+  onTrashThread,
 }: {
   row: PersonRow;
   onOpenThread: (t: MailThreadSummary) => void;
+  /**
+   * The reader's text size, the same number the thread reader uses.
+   *
+   * This pane is read the way a thread is read, so it is sized the way a
+   * thread is sized — one setting for both, rather than a pane that stays
+   * small for a reader who has said once that they want their mail bigger.
+   */
+  zoom: number;
+  onZoomAdjust: (delta: number) => void;
+  /** Every thread here at once. */
+  onArchiveAll: () => void;
+  onDeleteAll: () => void;
+  /** One thread, the way the list rows do it. */
+  onToggleRead: (rows: MailThreadSummary[], label: string) => void;
+  onArchiveThread: (t: MailThreadSummary) => void;
+  onTrashThread: (t: MailThreadSummary) => void;
 }) {
+  // `t` is the thread in the map below, so the dictionary is `say` here.
+  const say = useMailT();
   const draftKeys = useThreadDraftKeys();
+  const pinchRef = React.useRef<HTMLDivElement | null>(null);
+  usePinchZoom(pinchRef, onZoomAdjust, true);
+  const [confirmDelete, setConfirmDelete] = React.useState(false);
+  const anyUnread = row.threads.some((t) => t.unread);
+  const count = row.threads.length;
   const newest = row.threads[0];
   // Strip self: list payloads can still list a personal alias as external.
   const groupNames = (newest.externalParticipants ?? [])
@@ -7432,62 +8146,232 @@ function PersonPane({
   const subtitle = [
     row.isGroup ? groupNames : row.email,
     row.crmName,
-    `${row.threads.length} open thread${row.threads.length === 1 ? "" : "s"}`,
+    row.threads.length === 1
+      ? say("openThreadOne")
+      : say("openThreadMany", { count: row.threads.length }),
   ]
     .filter(Boolean)
     .join(" · ");
 
   return (
-    <div className="mail-thread-surface min-h-0 flex-1 overflow-y-auto bg-[var(--mail-thread)]">
-      <div className="mx-auto w-full max-w-2xl px-8 py-8">
-        <div className="flex items-center gap-4">
-          <PersonAvatar row={row} className="h-12 w-12 text-base" />
-          <div className="min-w-0">
-            <h2 className="truncate font-serif text-2xl font-bold text-stone-900">
-              {row.name}
-            </h2>
-            <p className="mt-0.5 truncate text-xs text-muted-foreground">
-              {subtitle}
-            </p>
+    <div className="mail-thread-surface flex min-h-0 flex-1 flex-col bg-[var(--mail-thread)]">
+      {/* The size control sits above the scroll, and outside what it
+          sizes: a pill that grew with the text it was setting would move
+          under the hand that was pressing it. Same reason the reader
+          keeps its own pill on the toolbar rather than in the thread. */}
+      <div className="flex shrink-0 items-center justify-end px-4 pt-3">
+        <ZoomControls zoom={zoom} onAdjust={onZoomAdjust} />
+      </div>
+      <div ref={pinchRef} className="min-h-0 flex-1 overflow-y-auto">
+        <div
+          className="mx-auto w-full max-w-2xl px-8 pb-8 pt-4"
+          style={{ zoom }}
+        >
+          <div className="flex items-center gap-4">
+            <PersonAvatar row={row} className="h-12 w-12 text-base" />
+            <div className="min-w-0">
+              <h2 className="truncate font-serif text-2xl font-bold text-[var(--mail-thread-fg)]">
+                {row.name}
+              </h2>
+              <p className="mt-0.5 truncate text-xs text-muted-foreground">
+                {subtitle}
+              </p>
+            </div>
           </div>
-        </div>
 
-        <div className="mt-6 flex flex-col gap-2.5">
-          {row.threads.map((t) => {
-            const hasDraft = draftKeys.has(
-              threadDraftKey(t.account, t.threadId)
-            );
-            return (
-              <button
-                key={threadKey(t)}
-                type="button"
-                onClick={() => onOpenThread(t)}
-                className="rounded-xl border border-stone-200 bg-white px-4 py-3 text-left transition-shadow hover:border-stone-300 hover:shadow-sm"
-              >
-                <div className="flex items-baseline justify-between gap-3">
-                  <p className="flex min-w-0 items-center gap-1.5 text-sm font-semibold text-stone-900">
-                    {t.unread ? (
-                      <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-teal-600" />
-                    ) : null}
-                    <span className="truncate">{t.subject}</span>
-                    {hasDraft ? <DraftBadge /> : null}
-                  </p>
-                  <p className="shrink-0 text-xs text-stone-400">
-                    {shortDate(t.lastAt)}
+          {/*
+            What can be done to all of it, under the name it applies to.
+
+            The same round ghost buttons the thread reader wears, so the two
+            panes read as one app — but with the words next to the icons.
+            Above a thread an icon is enough, because there is one thing it
+            can mean; here the same icon would be asking about every
+            conversation on the page at once, and that is worth saying.
+          */}
+          <div className="mt-4 flex flex-wrap items-center gap-1">
+            <button
+              type="button"
+              className={cn(THREAD_ACTION_CLASS, PERSON_ACTION_CLASS)}
+              onClick={() => onToggleRead(row.threads, row.name)}
+            >
+              <MailDotIcon aria-hidden />
+              {anyUnread
+                ? say("markAllAsRead", { count })
+                : say("markAsUnread")}
+            </button>
+            <button
+              type="button"
+              className={cn(THREAD_ACTION_CLASS, PERSON_ACTION_CLASS)}
+              title={say("archiveAllWith", { count, name: row.name })}
+              onClick={onArchiveAll}
+            >
+              <Archive aria-hidden />
+              {say("archiveAll")}
+            </button>
+            <button
+              type="button"
+              className={cn(
+                THREAD_ACTION_CLASS,
+                PERSON_ACTION_CLASS,
+                "hover:bg-red-50 hover:text-red-600"
+              )}
+              title={say("deleteAllWith", { count, name: row.name })}
+              onClick={() => setConfirmDelete(true)}
+            >
+              <Trash2 aria-hidden />
+              {say("deleteAll")}
+            </button>
+          </div>
+
+          <div className="mt-6 flex flex-col gap-2.5">
+            {row.threads.map((t) => {
+              const hasDraft = draftKeys.has(
+                threadDraftKey(t.account, t.threadId)
+              );
+              return (
+                /*
+                  A div that behaves as a button, not a button.
+
+                  The actions below are buttons, and a button inside a button
+                  is not something a browser will build — the inner ones get
+                  lifted out and the card stops being one thing to click. So
+                  the card takes the role and the key handling by hand.
+                */
+                <div
+                  key={threadKey(t)}
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => onOpenThread(t)}
+                  onKeyDown={(e) => {
+                    if (e.key !== "Enter" && e.key !== " ") return;
+                    e.preventDefault();
+                    onOpenThread(t);
+                  }}
+                  className="group/card mail-bubble-card cursor-pointer rounded-xl border border-[var(--mail-bubble-other-border)] bg-[var(--mail-bubble-other)] px-4 py-3 text-left outline-none transition-colors hover:bg-[var(--mail-row-hover)] focus-visible:ring-2 focus-visible:ring-teal-600/50"
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="flex min-w-0 items-center gap-1.5 text-sm font-semibold text-[var(--mail-thread-fg)]">
+                      {t.unread ? (
+                        <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--mail-accent)]" />
+                      ) : null}
+                      <span className="truncate">{t.subject}</span>
+                      {hasDraft ? <DraftBadge /> : null}
+                    </p>
+                    {/* The date stands down for the actions rather than
+                        shuffling along beside them, the way a list row
+                        does it — the card keeps one width either way. */}
+                    <p className="shrink-0 text-xs text-[var(--mail-thread-muted)] group-hover/card:hidden">
+                      {shortDate(t.lastAt)}
+                    </p>
+                    <div
+                      className="hidden shrink-0 items-center gap-0.5 group-hover/card:flex"
+                      /* The card underneath opens the thread; these do not. */
+                      onClick={(e) => e.stopPropagation()}
+                      onKeyDown={(e) => e.stopPropagation()}
+                    >
+                      <button
+                        type="button"
+                        title={say(t.unread ? "markAsRead" : "markAsUnread")}
+                        aria-label={say(
+                          t.unread ? "markAsRead" : "markAsUnread"
+                        )}
+                        className={CARD_ACTION_CLASS}
+                        onClick={() => onToggleRead([t], t.subject)}
+                      >
+                        <MailDotIcon className="h-4 w-4" aria-hidden />
+                      </button>
+                      <button
+                        type="button"
+                        title={say("actionArchive")}
+                        aria-label={say("actionArchive")}
+                        className={CARD_ACTION_CLASS}
+                        onClick={() => onArchiveThread(t)}
+                      >
+                        <Archive className="h-4 w-4" aria-hidden />
+                      </button>
+                      <button
+                        type="button"
+                        title={say("actionDelete")}
+                        aria-label={say("actionDelete")}
+                        className={cn(
+                          CARD_ACTION_CLASS,
+                          "hover:bg-red-50 hover:text-red-600"
+                        )}
+                        onClick={() => onTrashThread(t)}
+                      >
+                        <Trash2 className="h-4 w-4" aria-hidden />
+                      </button>
+                    </div>
+                  </div>
+                  {/* Two lines, not one. A card here has the width of the
+                      reading pane to fill and is the only thing saying what
+                      a thread is about; one clipped line was spending that
+                      room on an ellipsis. */}
+                  <p className="mt-1 line-clamp-2 text-xs text-[var(--mail-thread-muted)]">
+                    {t.messageCount === 1
+                      ? say("threadMessageOne")
+                      : say("threadMessageMany", { count: t.messageCount })}{" "}
+                    ·{" "}
+                    {t.snippet}
                   </p>
                 </div>
-                <p className="mt-1 truncate text-xs text-stone-500">
-                  {t.messageCount} message{t.messageCount === 1 ? "" : "s"} ·{" "}
-                  {t.snippet}
-                </p>
-              </button>
-            );
-          })}
+              );
+            })}
+          </div>
         </div>
       </div>
+      {confirmDelete ? (
+        <SettingsDialog
+          title={say("deleteThreadsAsk", { count })}
+          width="w-[400px]"
+          bare
+          onClose={() => setConfirmDelete(false)}
+          footer={
+            <>
+              <button
+                type="button"
+                className={settingsSecondaryButton}
+                onClick={() => setConfirmDelete(false)}
+              >
+                {say("cancel")}
+              </button>
+              <button
+                type="button"
+                autoFocus
+                className="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-red-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-600"
+                onClick={() => {
+                  setConfirmDelete(false);
+                  onDeleteAll();
+                }}
+              >
+                {say("deleteAll")}
+              </button>
+            </>
+          }
+        >
+          <p className="text-sm text-stone-600">
+            {say("deleteThreadsExplain")}
+          </p>
+        </SettingsDialog>
+      ) : null}
     </div>
   );
 }
+
+/**
+ * A thread-reader action button, wearing a word.
+ *
+ * `THREAD_ACTION_CLASS` is sized for a circle with nothing but an icon in
+ * it, so the width goes and the row is laid out rather than stacked — a
+ * block button puts the label under the icon. The icon comes down to the
+ * size of the text beside it; nineteen pixels is a glyph standing alone.
+ */
+const PERSON_ACTION_CLASS =
+  "inline-flex w-auto items-center gap-2 px-3 text-sm [&_svg]:size-4";
+
+/** The look of a quick action on a thread card, matching the list rows. */
+const CARD_ACTION_CLASS =
+  "rounded p-1 text-[var(--mail-thread-muted)] hover:bg-[var(--mail-chrome-hover)] hover:text-[var(--mail-thread-fg)]";
 
 // ---------------------------------------------------------------------------
 // Thread pane

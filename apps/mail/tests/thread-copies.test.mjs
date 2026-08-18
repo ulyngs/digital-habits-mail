@@ -10,6 +10,7 @@
 import assert from "node:assert/strict";
 
 import {
+  dedupeMessagesByRfcId,
   dedupeThreadsByTip,
   everyCopy,
   threadKey,
@@ -106,4 +107,56 @@ assert.deepEqual(
     alsoIn: [{ account: "team@a.example", threadId: "t-b" }],
   };
   assert.equal(everyCopy(record, [record]).length, 2);
+}
+
+/*
+ * One bubble per message, however many copies the mailbox holds.
+ *
+ * Cc yourself on Outlook and Exchange keeps two items — Sent Items and the
+ * Inbox — with one Message-ID between them. The conversation is queried
+ * across the whole mailbox, so both came back and the thread drew the
+ * message twice, side by side, both as outgoing. Gmail never did this, so
+ * the same account read correctly on one provider and doubled on the other.
+ */
+{
+  const sentCopy = { id: "AAA-sent", rfcMessageId: "<cc-self@mail.example>" };
+  const inboxCopy = { id: "BBB-inbox", rfcMessageId: "<cc-self@mail.example>" };
+  const reply = { id: "CCC", rfcMessageId: "<reply@mail.example>" };
+
+  const kept = dedupeMessagesByRfcId([sentCopy, inboxCopy, reply]);
+  assert.deepEqual(
+    kept.map((m) => m.id),
+    ["AAA-sent", "CCC"],
+    "the two copies of one message collapse; the reply is untouched"
+  );
+
+  // Whichever copy came first stands for it, and the order of the rest holds.
+  assert.deepEqual(
+    dedupeMessagesByRfcId([inboxCopy, sentCopy, reply]).map((m) => m.id),
+    ["BBB-inbox", "CCC"]
+  );
+
+  // Case and padding are the provider's business, not a different message.
+  assert.equal(
+    dedupeMessagesByRfcId([
+      { id: "a", rfcMessageId: "<Cc-Self@Mail.Example>" },
+      { id: "b", rfcMessageId: " <cc-self@mail.example> " },
+    ]).length,
+    1
+  );
+}
+
+/*
+ * A message with no Message-ID stands for itself.
+ *
+ * Folding those together by a missing key would hide real messages — the
+ * one thing worse than showing one twice.
+ */
+{
+  const kept = dedupeMessagesByRfcId([
+    { id: "one" },
+    { id: "two" },
+    { id: "three", rfcMessageId: "" },
+  ]);
+  assert.deepEqual(kept.map((m) => m.id), ["one", "two", "three"]);
 }

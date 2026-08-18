@@ -40,6 +40,8 @@ import {
   type MailAccountScope,
 } from "@/lib/mail/account-scope";
 import { mailStore } from "@/lib/mail/store";
+import { dedupeMessagesByRfcId } from "@/lib/mail/thread-copies";
+import { sentFromThisMailbox } from "@/lib/mail/reply-target";
 import type { MailListSyncRow } from "@/lib/mail/store/types";
 import {
   crmLogoUrlIfLoaded,
@@ -1633,8 +1635,12 @@ export async function getMailThread(
         .filter((m): m is GmailMessage => Boolean(m))
     : await mapWithConcurrency(pageIds, (id) => getMessageFull(token, id));
 
-  const messages: MailMessage[] = await Promise.all(
-    rawMessages.map((m) => gmailMailMessage(token, account, m))
+  // Gmail keeps one message per Message-ID and labels it both SENT and
+  // INBOX, so this finds nothing to fold today. It is here so that "one
+  // bubble per message" is a rule of the reader rather than a property of
+  // one provider — which is what let the Outlook side double for months.
+  const messages: MailMessage[] = dedupeMessagesByRfcId(
+    await Promise.all(rawMessages.map((m) => gmailMailMessage(token, account, m)))
   );
 
   // Reply targets the true thread tip, not the middle of a deep-link window.
@@ -1658,7 +1664,14 @@ export async function getMailThread(
   const lastCc = last
     ? parseAddressList(headerValue(last, "Cc")).map((p) => p.email)
     : [];
-  const sentByUs = lastFrom ? isSelfAddress(lastFrom.email, account) : false;
+  // Not "from an address of mine" — from *this* mailbox. See the note on
+  // `sentFromThisMailbox`; the difference is a thread with yourself.
+  const sentByUs = sentFromThisMailbox({
+    from: lastFrom?.email ?? "",
+    account,
+    to: lastTo,
+    cc: lastCc,
+  });
   const accountKey = normalizeEmail(account);
   /**
    * Dedupe (ignoring case and Gmail dot/+tag variants) and drop the mailbox

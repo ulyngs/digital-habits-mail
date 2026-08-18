@@ -48,8 +48,45 @@ function accountRows(email: string) {
   ];
 }
 
+/**
+ * The invented invite behind `invite.ics`.
+ *
+ * Thursday the 20th at 11:00 for an hour, which is the day and the hour the
+ * message beside it asks for. Written out here rather than taken from a real
+ * one: the mailbox in this mode is made up, and an invite carries names,
+ * addresses and a meeting link.
+ *
+ * The date is fixed rather than worked out from today. A screenshot is worth
+ * having only if it says the same thing tomorrow.
+ */
+function demoInviteIcs(): string {
+  return [
+    "BEGIN:VCALENDAR",
+    "VERSION:2.0",
+    "PRODID:-//Digital Habits//Demo//EN",
+    "METHOD:REQUEST",
+    "BEGIN:VEVENT",
+    "UID:demo-studio-visit@digitalhabits.invalid",
+    "DTSTAMP:20260817T090000Z",
+    "DTSTART:20260820T090000Z",
+    "DTEND:20260820T100000Z",
+    "SUMMARY:Studio visit — Kanin Kunsthal",
+    "LOCATION:Værkstedet, yard entrance",
+    "DESCRIPTION:A group of six, about an hour.",
+    "END:VEVENT",
+    "END:VCALENDAR",
+    "",
+  ].join("\r\n");
+}
+
 /** The bytes behind an attachment: drawn or written here, never shipped. */
 function attachmentBody(filename: string, mimeType: string): Response {
+  if (mimeType.includes("calendar") || /\.ics$/i.test(filename)) {
+    return new Response(demoInviteIcs(), {
+      status: 200,
+      headers: { "content-type": "text/calendar; charset=utf-8" },
+    });
+  }
   if (mimeType === "application/pdf" || /\.pdf$/i.test(filename)) {
     // A fresh buffer, because a Response wants one it owns.
     return new Response(demoPdf(filename.replace(/\.pdf$/i, "")).slice().buffer, {

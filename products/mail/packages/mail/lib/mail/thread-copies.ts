@@ -74,6 +74,43 @@ export function dedupeThreadsByTip(rows: MailThreadSummary[]): MailThreadSummary
 }
 
 /**
+ * One bubble per message, however many copies of it the mailbox holds.
+ *
+ * Cc yourself and Exchange keeps two items: one in Sent Items, one in the
+ * Inbox. They are the same message — one RFC 822 Message-ID, one thing the
+ * reader wrote — but two ids, and the conversation is queried across the
+ * whole mailbox, so both came back and the thread showed the message twice,
+ * side by side, both drawn as outgoing because both are from the reader.
+ *
+ * Gmail never did this: it keeps one message and hangs both SENT and INBOX
+ * on it. So the same account, cc'd to itself, read correctly on one provider
+ * and doubled on the other — which is the part that made it a bug rather
+ * than a choice. This is what makes the two agree.
+ *
+ * Order is kept, and the first copy of a message wins. Which one that is
+ * does not show: the two are the same words from the same sender at the same
+ * moment, and `own` is read off the From address, so they draw identically.
+ *
+ * A message with no Message-ID stands for itself. Some mailboxes have one,
+ * and folding those together by a missing key would hide real messages.
+ */
+export function dedupeMessagesByRfcId<
+  T extends { id: string; rfcMessageId?: string },
+>(messages: T[]): T[] {
+  const seen = new Set<string>();
+  const out: T[] = [];
+  for (const message of messages) {
+    const rfcId = message.rfcMessageId?.trim().toLowerCase();
+    if (rfcId) {
+      if (seen.has(rfcId)) continue;
+      seen.add(rfcId);
+    }
+    out.push(message);
+  }
+  return out;
+}
+
+/**
  * The row and every copy behind it: what an action on the row acts on.
  *
  * `t` may be a bare {account, threadId} — the open thread, say — so the

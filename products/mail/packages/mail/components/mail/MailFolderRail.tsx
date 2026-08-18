@@ -30,11 +30,10 @@ import {
   FolderInput,
   FolderPlus,
   Home,
+  Inbox,
   Loader2,
   Pencil,
   Send,
-  ShieldAlert,
-  X,
   Trash2,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -61,7 +60,10 @@ import {
   useFolderFavourites,
 } from "@/lib/mail/folder-favourites";
 import { accountsWithFolders, type MailAccountFolder } from "@/lib/mail/folder-types";
-import { moveAccountBefore } from "@/lib/mail/account-order";
+import {
+  accountDropPlace,
+  type AccountSpan,
+} from "@/lib/mail/account-order";
 import { useIsOutlookAccount } from "@/lib/mail/use-outlook-accounts";
 import { useMailT } from "@/lib/mail/i18n";
 import { cn } from "@/lib/utils";
@@ -166,6 +168,7 @@ function scrollingAncestor(row: HTMLElement): HTMLElement | null {
  * mailbox at once rather than one.
  */
 const ROLE_ICON = {
+  inbox: Inbox,
   archive: Archive,
   drafts: FilePen,
   sent: Send,
@@ -219,7 +222,13 @@ function HeartIcon({
 }
 
 /** Which of the four unified views is showing, if any. */
-export type MailSystemView = "sent" | "drafts" | "trash" | "junk" | null;
+export type MailSystemView =
+  | "inbox"
+  | "sent"
+  | "drafts"
+  | "trash"
+  | "junk"
+  | null;
 
 /**
  * A folder being carried to a new parent.
@@ -243,9 +252,17 @@ function folderParentPath(name: string): string {
  * inside it — a folder cannot hold the folder that holds it, and asked to
  * do that a provider loses the subtree. And not into the parent it already
  * has, which would be a rename to the name it already has.
+ *
+ * A stand-in parent takes one. It is drawn for a name that has children in
+ * the list but no row of its own, and the commonest of those is the
+ * Outlook inbox: the rail leaves it out because the list beside it is the
+ * inbox already, and people file real folders under it all the same. The
+ * move is a rename — `Inbox/Receipts` — and the provider resolves the
+ * parent by path against its own tree, where the inbox is a folder like
+ * any other. A search row still refuses: there is nothing behind it.
  */
 function folderAcceptsFolder(drag: FolderDrag, node: FolderTreeNode): boolean {
-  if (node.implied || node.virtual) return false;
+  if (node.virtual) return false;
   if (drag.account.toLowerCase() !== node.account.toLowerCase()) return false;
   const from = drag.name.toLowerCase();
   const to = node.name.toLowerCase();
@@ -268,7 +285,7 @@ export type FolderRailProps = {
   onOpenSent: () => void;
   onOpenDrafts: () => void;
   onOpenTrash: () => void;
-  onOpenJunk: () => void;
+  onOpenInbox: () => void;
   onCreateFolder: (account: string, name: string) => Promise<void>;
   /** `name` and `newName` are whole paths, so a nested folder stays nested. */
   onRenameFolder: (
@@ -296,10 +313,6 @@ export type FolderRailProps = {
   onDropThread: (account: string, folderName: string) => void | Promise<void>;
   /** Dragging onto Trash deletes; onto Junk marks as junk. Both are moves. */
   onDropTrash: () => void | Promise<void>;
-  onDropJunk: () => void | Promise<void>;
-  /** Hide the rail. The only way out, now that the button that opened it
-   *  stands down while it is open. */
-  onClose: () => void;
   /**
    * Which side of the window the rail is against.
    *
@@ -566,8 +579,10 @@ function FolderRow({
       ? "live"
       : "dim"
     : drop;
-  // An implied parent is not a folder at the provider, so nothing can go in
-  // it. It is on screen only to hold its children under a name.
+  // A conversation cannot be filed into a stand-in parent: the rail knows
+  // the name but not what is behind it, and on Gmail there is often
+  // nothing. A folder can — see `folderAcceptsFolder`, where the move goes
+  // through the provider's own tree rather than this one.
   const takesDrop = carrying
     ? state === "live"
     : drop === "live" && !node.implied && !refuses;
@@ -817,7 +832,10 @@ function FolderRow({
           }
         }}
         className={cn(
-          "flex min-w-0 flex-1 items-center gap-1.5 py-1 pr-1 text-left text-sm outline-none",
+          // `items-start` with a wrapping name: on two lines the icon
+          // stands beside the first of them rather than floating in the
+          // middle of the pair.
+          "flex min-w-0 flex-1 items-start gap-1.5 py-1 pr-1 text-left text-sm outline-none",
           active
             ? "font-semibold text-[var(--mail-chrome-pinned-fg)]"
             : "text-stone-800",
@@ -840,7 +858,9 @@ function FolderRow({
         ) : (
         <RowIcon
           className={cn(
-            "h-4 w-4 shrink-0",
+            // Nudged down to sit on the first line's baseline, now that the
+            // row is aligned to the top of a name that may be two lines.
+            "mt-[3px] h-4 w-4 shrink-0",
             active
               ? "text-[var(--mail-chrome-pinned-fg)]"
               : "text-stone-400",
@@ -849,7 +869,12 @@ function FolderRow({
           aria-hidden
         />
         )}
-        <span className="min-w-0 flex-1 truncate">{node.label}</span>
+        {/* Wrapped, not cut off. A folder is named to be told apart from
+            the others, and "Klienter — 2026 …" tells you nothing that
+            "Klienter — 2025 …" does not. The rail is narrow and some
+            names are long, so the name takes the second line it needs.
+            `break-words` for the one that is long without a space in it. */}
+        <span className="min-w-0 flex-1 break-words">{node.label}</span>
       </div>
       )}
       {/* Where the drop would land. The row is already filled; this says
@@ -1465,7 +1490,7 @@ export function MailFolderRail({
   onOpenSent,
   onOpenDrafts,
   onOpenTrash,
-  onOpenJunk,
+  onOpenInbox,
   onCreateFolder,
   onReorderAccount,
   onRenameFolder,
@@ -1473,8 +1498,6 @@ export function MailFolderRail({
   draggingAccount,
   onDropThread,
   onDropTrash,
-  onDropJunk,
-  onClose,
   side = "left",
 }: FolderRailProps) {
   const t = useMailT();
@@ -1660,8 +1683,8 @@ export function MailFolderRail({
     return () => observer.disconnect();
   }, []);
 
-  /** The last mailbox section, so the empty rail under it knows it is under. */
-  const lastSectionRef = React.useRef<HTMLDivElement | null>(null);
+  /** Each mailbox section, so a drop can be told which space it is in. */
+  const sectionRefs = React.useRef(new Map<string, HTMLDivElement>());
   /**
    * Where it would land: in front of this mailbox, or at the end.
    *
@@ -1893,40 +1916,31 @@ export function MailFolderRail({
   /**
    * Where a drop would put the dragged mailbox, if it can go there at all.
    *
-   * The place is read off the pointer: the top half of a section means in
-   * front of it, the bottom half means behind it — which is the same as in
-   * front of the next one down. Any place is a place: the order is the
-   * reader's own arrangement, so a mailbox may sit anywhere among the others,
-   * whichever provider each of them came from.
+   * One question for the whole rail rather than one per section, because the
+   * places a mailbox can go are the spaces between the sections, and a space
+   * is not inside either of the two it separates. Asked section by section,
+   * the rail had spaces it could not name at all: the one above the first
+   * mailbox needed the pointer in the top half of a section that is as tall
+   * as the mailbox is deep, so with the folders open — or the rail scrolled
+   * a little — the top of the list was somewhere the reader could not point.
+   *
+   * See `accountDropPlace`, which does the reading. Any place is a place:
+   * the order is the reader's own arrangement, so a mailbox may sit anywhere
+   * among the others, whichever provider each of them came from.
    */
-  const dropPlaceFor = React.useCallback(
-    (account: string, event: React.DragEvent): string | null | undefined => {
+  const dropPlaceAt = React.useCallback(
+    (y: number): string | null | undefined => {
       if (!accountDrag) return undefined;
-      const box = event.currentTarget.getBoundingClientRect();
-      const above = event.clientY < box.top + box.height / 2;
-      const index = railAccounts.indexOf(account);
-      if (index < 0) return undefined;
-      const before = above
-        ? account
-        : (railAccounts[index + 1] ?? null);
-      if (before !== null && before === accountDrag) return undefined;
-      const next = moveAccountBefore(railAccounts, accountDrag, before);
-      // A place that changes nothing is not a place to drop: the line would
-      // promise a move and the drop would make none. The mailbox already
-      // behind the pointer is the common case.
-      if (next.join(">") === railAccounts.join(">")) return undefined;
-      return before;
+      const spans: AccountSpan[] = [];
+      for (const account of railAccounts) {
+        const box = sectionRefs.current.get(account)?.getBoundingClientRect();
+        if (!box) continue;
+        spans.push({ account, top: box.top, bottom: box.bottom });
+      }
+      return accountDropPlace(railAccounts, spans, accountDrag, y);
     },
     [accountDrag, railAccounts]
   );
-
-  /** The same question for the empty rail under the last mailbox. */
-  const dropPlaceAtEnd = React.useCallback((): string | null | undefined => {
-    if (!accountDrag) return undefined;
-    const next = moveAccountBefore(railAccounts, accountDrag, null);
-    if (next.join(">") === railAccounts.join(">")) return undefined;
-    return null;
-  }, [accountDrag, railAccounts]);
 
   const favouriteKeys = React.useMemo(
     () =>
@@ -2216,17 +2230,19 @@ export function MailFolderRail({
       onDropThread={() => void onDropTrash()}
     />
   );
-  const junkRow = (
+  const inboxRow = (
     <SystemRow
-      icon={ShieldAlert}
-      label={t("viewJunk")}
-      active={systemView === "junk"}
-      drop={dragging ? "live" : "rest"}
+      icon={Inbox}
+      label={t("viewInbox")}
+      active={systemView === "inbox"}
+      /* Not a drop target. Everything else here is somewhere to put a
+         conversation; the inbox is where it already was, and taking one
+         back out of a folder is what the folder's own row is for. */
+      drop={dragging ? "dim" : "rest"}
       dragOver={dragOver}
       setDragOver={setDragOver}
-      onClick={onOpenJunk}
+      onClick={onOpenInbox}
       onContextMenu={openFixedMenu}
-      onDropThread={() => void onDropJunk()}
     />
   );
 
@@ -2247,40 +2263,13 @@ export function MailFolderRail({
         side === "right" ? "border-l" : "border-r"
       )}
     >
-      {/* What this column is, and the way out of it.
-          The button that opened the rail stands down while it is open — a
-          lit control beside the tabs, saying a thing the rail itself says
-          by being there — so the close lives here instead, on the thing it
-          closes. */}
+      {/* What this column is. The way out of it is the folder button that
+          opened it, which closes it again — one control for the pair, so
+          the rail carries no cross of its own. */}
       <div className="flex shrink-0 items-center gap-1 pl-2">
         <p className="min-w-0 flex-1 truncate text-[11px] font-semibold uppercase tracking-wide text-[var(--mail-chrome-muted)]">
           {t("folders")}
         </p>
-        {/* No right padding, and four above and below.
-            A number is ink to the edge of its box; this glyph is not — the
-            cross is drawn inside its own square with about four pixels of
-            air on every side, so it needs less padding than the numbers to
-            end where they end. What is left is the same gap above the
-            cross as beside it: about twelve pixels of rail either way, so
-            it sits in its corner rather than against one edge of it. */}
-        <button
-          type="button"
-          title={t("hideFolders")}
-          aria-label={t("hideFolders")}
-          onClick={onClose}
-          className={cn(
-            "shrink-0 rounded py-1 pl-1 pr-0 text-[var(--mail-chrome-muted)] hover:bg-[var(--mail-chrome-hover)] hover:text-[var(--mail-chrome-fg)]",
-            // Not until the pointer is on the rail. Closing the folders is
-            // a thing you do once in a while, and a cross in the corner of
-            // a column you are reading is a thing you see every time.
-            //
-            // Named group, because a folder row is a group of its own and
-            // an unnamed `group-hover` would find the nearer one.
-            "opacity-0 focus-visible:opacity-100 group-hover/rail:opacity-100"
-          )}
-        >
-          <X className="h-[18px] w-[18px]" />
-        </button>
       </div>
 
       {/*
@@ -2292,11 +2281,16 @@ export function MailFolderRail({
         show; side by side they take half of that.
 
         The order changes with the shape, which is why the width is measured
-        rather than left to the grid. Stacked, they run in the order they are
-        spoken about: Sent, Drafts, Trash, Junk. Two abreast, the pair you
-        empty stands on the left and the pair you write from on the right —
-        so the grid is dealt Trash, Sent, Junk, Drafts, and reads down as
-        Trash/Junk and Sent/Drafts.
+        rather than left to the grid. Stacked, they run in the order they
+        are spoken about: Inbox, Sent, Drafts, Trash. Two abreast, the pair
+        that holds mail stands on the left and the pair you write from on
+        the right — so the grid is dealt Inbox, Sent, Trash, Drafts, and
+        reads down as Inbox/Trash and Sent/Drafts.
+
+        Junk is not among them. It is a folder the reader visits rarely and
+        the providers hide from the tree, so it lives in the folders menu
+        beside the list, and in the move menu, where filing something as
+        junk is what it usually means.
       */}
       <div
         className={cn(
@@ -2306,17 +2300,17 @@ export function MailFolderRail({
       >
         {systemTwoUp ? (
           <>
-            {trashRow}
+            {inboxRow}
             {sentRow}
-            {junkRow}
+            {trashRow}
             {draftsRow}
           </>
         ) : (
           <>
+            {inboxRow}
             {sentRow}
             {draftsRow}
             {trashRow}
-            {junkRow}
           </>
         )}
       </div>
@@ -2392,26 +2386,24 @@ export function MailFolderRail({
       </div>
 
       <div
-        className="mt-2 min-h-0 flex-1 space-y-1 overflow-y-auto pb-2"
+        /* Room at the top for the line that says "in front of the first
+           one". It is drawn just above the section it points at, and the
+           first section starts at the very top of the scroll — so without
+           this the one line the reader needed most was the one line the
+           rail cut off. */
+        className="mt-2 min-h-0 flex-1 space-y-1 overflow-y-auto pt-1.5 pb-2"
         /*
-          The floor of the rail.
+          The rail answers for a mailbox in the air, from top to bottom.
 
-          A mailbox headed for the end of the list is dragged past the last
-          folder of the last mailbox, and everything under the pointer from
-          there down is empty rail — a hand's width of it on a short list.
-          It used to answer nothing, so the drop had to be aimed at the last
-          few pixels of the last section, and anywhere below that the
-          mailbox sprang back.
-
-          Under the last section means the end of the list, however far
-          under. Above it, the section the pointer is over has answered
-          already, and this leaves it alone.
+          Every place a mailbox can go is a space between two others, and
+          the rail is read as a whole to find which space the pointer is in
+          — including the two that are not between anything: above
+          everything, and below everything. Both used to be hard to reach or
+          impossible. See `dropPlaceAt`.
         */
         onDragOver={(e) => {
           if (!accountDrag) return;
-          const floor = lastSectionRef.current?.getBoundingClientRect().bottom;
-          if (floor === undefined || e.clientY <= floor) return;
-          const place = dropPlaceAtEnd();
+          const place = dropPlaceAt(e.clientY);
           if (place === undefined) return;
           e.preventDefault();
           e.dataTransfer.dropEffect = "move";
@@ -2419,9 +2411,7 @@ export function MailFolderRail({
         }}
         onDrop={(e) => {
           if (!accountDrag) return;
-          const floor = lastSectionRef.current?.getBoundingClientRect().bottom;
-          if (floor === undefined || e.clientY <= floor) return;
-          const place = dropPlaceAtEnd();
+          const place = dropPlaceAt(e.clientY);
           if (place === undefined) return;
           e.preventDefault();
           e.stopPropagation();
@@ -2436,7 +2426,7 @@ export function MailFolderRail({
             {t("loadingFolders")}
           </p>
         ) : null}
-        {filtered.map(({ account, nodes }, sectionIndex) => {
+        {filtered.map(({ account, nodes }) => {
           const state = dropStateFor(account);
           /**
            * While a conversation is in the air, only its own mailbox is
@@ -2461,11 +2451,23 @@ export function MailFolderRail({
            * A filter opens what it found, here as much as inside a folder:
            * a match under a folded mailbox is a match nobody can see or
            * drop onto.
+           *
+           * A mailbox in the air folds every mailbox, its own included. The
+           * move is an arrangement of the headings and nothing else, and
+           * with the folders open the headings are pages apart — the reader
+           * had to drag a mailbox across a list of somebody else's folders
+           * to reach a place two names above it, and a place off the top of
+           * the rail could not be reached at all. Folded, the whole
+           * arrangement is in view and every space in it is a short move
+           * away. It is not written down either: the folders come back open
+           * when the drag ends.
            */
-          const accountShut = dragging
-            ? state !== "live"
-            : !query.trim() &&
-              collapsedAccounts.has(collapsedAccountKey(account));
+          const accountShut = accountDrag
+            ? true
+            : dragging
+              ? state !== "live"
+              : !query.trim() &&
+                collapsedAccounts.has(collapsedAccountKey(account));
           const dropAbove = accountDrag !== null && accountDropBefore === account;
           /* Last in the rail, and the drop is "after everything". */
           const dropAtEnd =
@@ -2475,42 +2477,13 @@ export function MailFolderRail({
           return (
             <div
               key={account}
-              ref={
-                sectionIndex === filtered.length - 1 ? lastSectionRef : undefined
-              }
+              /* The section says where it is, and the rail as a whole says
+                 what a drop there would mean. */
+              ref={(node) => {
+                if (node) sectionRefs.current.set(account, node);
+                else sectionRefs.current.delete(account);
+              }}
               className="relative"
-              /*
-                The whole section, not the heading strip.
-
-                A heading is about twenty pixels tall, and half of it is the
-                only half that means anything — the top half puts a mailbox
-                in front of this one, the bottom half behind it. Dragging
-                downwards you enter a heading at its top, so with the strip
-                as the target the useful half was the one you had already
-                passed, and a drop a moment too early did nothing at all.
-
-                The section is the heading and its folders together, which
-                is a target the size of what it names.
-              */
-              onDragOver={(e) => {
-                if (!accountDrag) return;
-                const place = dropPlaceFor(account, e);
-                if (place === undefined) return;
-                e.preventDefault();
-                e.dataTransfer.dropEffect = "move";
-                setAccountDropBefore(place);
-              }}
-              onDrop={(e) => {
-                if (!accountDrag) return;
-                const place = dropPlaceFor(account, e);
-                if (place === undefined) return;
-                e.preventDefault();
-                e.stopPropagation();
-                const moved = accountDrag;
-                setAccountDrag(null);
-                setAccountDropBefore(undefined);
-                void onReorderAccount?.(moved, place);
-              }}
             >
               {/* Where it would land. A line between two headings, because
                   that is what the move is: a place in a list, not a thing to

@@ -45,6 +45,7 @@ export type CrmProposal = {
     | "add_contact"
     | "set_logo"
     | "create_record"
+    | "update_record"
     | "create_meeting";
   input: Record<string, unknown>;
   why: string;
@@ -54,6 +55,8 @@ export type CrmProposeResult = {
   candidates: CrmCandidate[];
   proposals: CrmProposal[];
   statusOptions: Record<string, string[]>;
+  /** Every organisation the CRM knows, when a proposal names one. */
+  organisations?: { name: string; logo?: string }[];
   dropped: { tool: string; error: string }[];
   note?: string;
   error?: string;
@@ -73,6 +76,7 @@ const TOOL_LABEL: Record<CrmProposal["tool"], string> = {
   add_contact: "Add contact",
   set_logo: "Logo",
   create_record: "New record",
+  update_record: "Fill in",
   create_meeting: "Meeting invitation",
 };
 
@@ -210,8 +214,106 @@ function RecordChip({ candidate, name, source }: { candidate?: CrmCandidate; nam
   );
 }
 
+/**
+ * An organisation, picked from the ones we have or typed as a new one.
+ *
+ * The column is plain text — a facilitator's Organisation is a name, and
+ * the crest beside it in the table is the client record's, found by that
+ * name. So the box has to take anything, and it has to offer the names we
+ * already hold, or the same organisation ends up in the CRM twice under
+ * two spellings.
+ *
+ * The list appears while it is being typed in, filtered by what is there,
+ * and a press outside puts it away. Nothing is chosen for the reader: what
+ * they typed stands until they press one.
+ */
+function OrganisationField({
+  value,
+  options,
+  onChange,
+}: {
+  value: string;
+  options: { name: string; logo?: string }[];
+  onChange: (value: string) => void;
+}) {
+  const [open, setOpen] = React.useState(false);
+  const boxRef = React.useRef<HTMLDivElement>(null);
+  React.useEffect(() => {
+    if (!open) return;
+    const away = (e: MouseEvent) => {
+      if (!boxRef.current?.contains(e.target as Node)) setOpen(false);
+    };
+    window.addEventListener("mousedown", away);
+    return () => window.removeEventListener("mousedown", away);
+  }, [open]);
+
+  const needle = value.trim().toLowerCase();
+  const shown = (
+    needle ? options.filter((o) => o.name.toLowerCase().includes(needle)) : options
+  ).slice(0, 8);
+  const exact = options.some((o) => o.name.toLowerCase() === needle);
+
+  return (
+    <div ref={boxRef} className="relative">
+      <input
+        className={inputClass}
+        value={value}
+        onChange={(e) => {
+          onChange(e.target.value);
+          setOpen(true);
+        }}
+        onFocus={() => setOpen(true)}
+        onKeyDown={(e) => {
+          if (e.key === "Escape" && open) {
+            e.stopPropagation();
+            setOpen(false);
+          }
+        }}
+      />
+      {open && shown.length ? (
+        <ul className="absolute left-0 right-0 top-full z-10 mt-1 max-h-56 overflow-y-auto rounded-md border border-stone-200 bg-white py-1 shadow-lg">
+          {shown.map((o) => (
+            <li key={o.name}>
+              <button
+                type="button"
+                className="mail-menu-pick flex w-full items-center gap-2 px-2 py-1.5 text-left text-sm text-stone-800"
+                onClick={() => {
+                  onChange(o.name);
+                  setOpen(false);
+                }}
+              >
+                {o.logo ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={o.logo}
+                    alt=""
+                    className="h-4 w-4 shrink-0 rounded-sm object-contain"
+                  />
+                ) : (
+                  <span className="h-4 w-4 shrink-0" aria-hidden />
+                )}
+                <span className="min-w-0 flex-1 truncate">{o.name}</span>
+              </button>
+            </li>
+          ))}
+          {needle && !exact ? (
+            <li className="px-2 py-1.5 text-xs text-stone-500">
+              {`Or keep “${value.trim()}” as a new one.`}
+            </li>
+          ) : null}
+        </ul>
+      ) : null}
+    </div>
+  );
+}
+
 const inputClass =
   "w-full rounded-md border border-stone-300 bg-white px-2 py-1 text-sm text-stone-900 focus:border-teal-600 focus:outline-none focus:ring-1 focus:ring-teal-600";
+
+/** The column that names an organisation, whichever table it is on. */
+function namesAnOrganisation(column: string): boolean {
+  return column.trim().toLowerCase() === "organisation";
+}
 
 function str(v: unknown): string {
   return typeof v === "string" ? v : v == null ? "" : String(v);
@@ -275,6 +377,8 @@ export function CrmProposalDialog({
     setRows((prev) => prev.map((r) => (r.proposal.id === id ? { ...r, checked } : r)));
 
   const candidates = result?.candidates ?? [];
+  /** Sent only when a proposal names an organisation — see the picker. */
+  const organisations = result?.organisations ?? [];
   const recordName = (id: unknown) =>
     candidates.find((c) => c.recordId === id)?.recordName ?? "(record)";
 
@@ -456,6 +560,48 @@ export function CrmProposalDialog({
             />
           </div>
         );
+      case "update_record": {
+        // The same shape as a create, minus the parts a create alone can
+        // set. Everything it would write is on show and editable: this is
+        // the one proposal that can go over something already there, and
+        // the reader is the one who decides that it should.
+        const extra =
+          row.input.fields && typeof row.input.fields === "object"
+            ? Object.entries(row.input.fields as Record<string, unknown>)
+            : [];
+        const setField = (key: string, value: string) =>
+          setInput(id, { fields: { ...(row.input.fields as object), [key]: value } });
+        return (
+          <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
+            {row.input.name !== undefined ? (
+              <input
+                className={inputClass}
+                placeholder={t("fieldName")}
+                value={str(row.input.name)}
+                onChange={(e) => setInput(id, { name: e.target.value })}
+              />
+            ) : null}
+            {extra.map(([key, value]) =>
+              namesAnOrganisation(key) && organisations.length ? (
+                <OrganisationField
+                  key={key}
+                  value={str(value)}
+                  options={organisations}
+                  onChange={(next) => setField(key, next)}
+                />
+              ) : (
+                <input
+                  key={key}
+                  className={inputClass}
+                  placeholder={key}
+                  value={str(value)}
+                  onChange={(e) => setField(key, e.target.value)}
+                />
+              )
+            )}
+          </div>
+        );
+      }
       case "set_logo":
         return (
           <LogoField
@@ -534,11 +680,21 @@ export function CrmProposalDialog({
                 <span className="w-20 shrink-0 truncate" title={key}>
                   {key}
                 </span>
-                <input
-                  className={inputClass}
-                  value={str(value)}
-                  onChange={(e) => setField(key, e.target.value)}
-                />
+                {namesAnOrganisation(key) && organisations.length ? (
+                  <span className="min-w-0 flex-1">
+                    <OrganisationField
+                      value={str(value)}
+                      options={organisations}
+                      onChange={(next) => setField(key, next)}
+                    />
+                  </span>
+                ) : (
+                  <input
+                    className={inputClass}
+                    value={str(value)}
+                    onChange={(e) => setField(key, e.target.value)}
+                  />
+                )}
               </label>
             ))}
             {row.input.note !== undefined ? (

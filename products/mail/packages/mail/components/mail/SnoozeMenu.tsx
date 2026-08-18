@@ -331,6 +331,9 @@ export function SnoozeMenu({
         )}
       </PopoverTrigger>
       <MailPopoverContent
+        /* Named, so a menu this one opens out of can tell a press in here
+           from a press outside itself — see ThreadToolbarOverflow. */
+        data-mail-snooze-menu
         align="start"
         className={cn(
           step === "presets" ? "w-64 p-1.5" : "w-[280px] p-3",
@@ -360,7 +363,10 @@ export function SnoozeMenu({
               <button
                 key={option.id}
                 type="button"
-                className="flex w-full items-baseline justify-between gap-3 rounded-lg px-2.5 py-2 text-left text-sm hover:bg-stone-100"
+                /* `mail-menu-pick`: the row under the pointer or the
+                   arrow keys takes the navy the rail marks a chosen folder
+                   with, so what is about to happen is unmistakable. */
+                className="mail-menu-pick flex w-full items-baseline justify-between gap-3 rounded-lg px-2.5 py-2 text-left text-sm"
                 onClick={() => choose(option.iso)}
               >
                 <span className="font-semibold text-stone-800">{option.label}</span>
@@ -372,7 +378,7 @@ export function SnoozeMenu({
             <div className="mx-1.5 my-1 border-t border-stone-100" />
             <button
               type="button"
-              className="flex w-full items-center justify-between gap-3 rounded-lg px-2.5 py-2 text-left text-sm font-semibold text-stone-800 hover:bg-stone-100"
+              className="mail-menu-pick flex w-full items-center justify-between gap-3 rounded-lg px-2.5 py-2 text-left text-sm font-semibold text-stone-800"
               onClick={() => setStep("custom")}
             >
               <span>

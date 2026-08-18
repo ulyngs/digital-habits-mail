@@ -43,6 +43,45 @@ export function moveAccountBefore(
   return [...rest.slice(0, at), order[from], ...rest.slice(at)];
 }
 
+/** Where a mailbox sits on the rail, as the rail draws it. */
+export type AccountSpan = { account: string; top: number; bottom: number };
+
+/**
+ * Which mailbox a drop at `y` would put the dragged one in front of.
+ *
+ * `null` is the end of the list, and `undefined` means the drop would change
+ * nothing — a place the rail draws no line for.
+ *
+ * The rail is read as a chain of middles: the pointer belongs to the first
+ * mailbox whose middle is still below it. So the whole top of the rail —
+ * everything above the first middle, however far above — means the top of
+ * the list, and everything below the last middle means the end. That matters
+ * because a rail has no place above its first mailbox to point at: with the
+ * top of the first section as the boundary instead, the one position a
+ * reader most often wants was the one position the rail could not be given.
+ *
+ * Spans come in the order the rail lists them, and only their middles are
+ * read, so a gap between two of them belongs to one or the other rather than
+ * to neither.
+ */
+export function accountDropPlace(
+  order: string[],
+  spans: AccountSpan[],
+  moved: string,
+  y: number
+): string | null | undefined {
+  let before: string | null = null;
+  for (const span of spans) {
+    if (y < span.top + (span.bottom - span.top) / 2) {
+      before = span.account;
+      break;
+    }
+  }
+  const next = moveAccountBefore(order, moved, before);
+  if (next.join(">") === order.join(">")) return undefined;
+  return before;
+}
+
 export const MAIL_ACCOUNT_ORDER_KEY = "redd-plan-mail-account-order";
 export const MAIL_ACCOUNT_ORDER_EVENT = "redd-plan-mail-account-order-changed";
 

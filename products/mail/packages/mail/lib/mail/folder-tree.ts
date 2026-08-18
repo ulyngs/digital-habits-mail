@@ -47,14 +47,21 @@ function splitFolderName(name: string): string[] {
 }
 
 /**
- * Archive, Drafts, Sent, Deleted — in that order, above the rest.
+ * Inbox, Archive, Drafts, Sent, Deleted — in that order, above the rest.
  *
- * Alphabetical among the folders somebody made would scatter the four the
+ * Alphabetical among the folders somebody made would scatter the ones the
  * provider made through the list, so Sent lands between ScanSoc and
  * thank-you-notes. Every mail client puts them together at the top, and
- * this is that order.
+ * this is that order — the inbox first, because it is the one the others
+ * are named in relation to.
  */
-const ROLE_ORDER: MailFolderRole[] = ["archive", "drafts", "sent", "trash"];
+const ROLE_ORDER: MailFolderRole[] = [
+  "inbox",
+  "archive",
+  "drafts",
+  "sent",
+  "trash",
+];
 
 function rank(node: FolderTreeNode): number {
   const at = node.role ? ROLE_ORDER.indexOf(node.role) : -1;

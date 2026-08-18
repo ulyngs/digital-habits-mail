@@ -559,9 +559,24 @@ export function ThreadAttachmentsRollup({
   onPreview: (messageId: string, attachment: MailAttachment) => void;
 }) {
   const t = useMailT();
+  const [saving, setSaving] = React.useState(false);
   if (!items.length) return null;
   const calendarOnly = items.every((item) =>
     isCalendarAttachment(item.attachment)
+  );
+  /*
+    Everything the thread carries, in one press.
+
+    A reader who opens this list of eight files usually wants the eight,
+    and the list offered only a preview each — eight previews and eight
+    saves for what is one act. The same thing the grid under a single
+    message already offers, for the thread the list is about.
+
+    Not what has yet to be sent: a file still being attached to a draft
+    has no copy at the provider to fetch.
+  */
+  const savable = items.filter(
+    (item) => !item.attachment.attachmentId.startsWith("local-")
   );
   return (
     <Popover>
@@ -585,9 +600,38 @@ export function ThreadAttachmentsRollup({
         </button>
       </PopoverTrigger>
       <MailPopoverContent align="end" className="w-80 p-2">
-        <p className="px-2 pb-1.5 text-xs font-medium text-stone-500">
-          {t(calendarOnly ? "calendarInvitesInThread" : "allFilesInThread")}
-        </p>
+        <div className="flex items-baseline justify-between gap-3 px-2 pb-1.5">
+          <p className="text-xs font-medium text-stone-500">
+            {t(calendarOnly ? "calendarInvitesInThread" : "allFilesInThread")}
+          </p>
+          {/* Beside the heading, not among the files: it is what to do with
+              all of them, and a row of its own in the list would read as a
+              ninth file. Only when there are two — with one, the file
+              itself is the whole of "all". */}
+          {savable.length > 1 ? (
+            <button
+              type="button"
+              disabled={saving}
+              className="shrink-0 text-xs font-semibold text-teal-700 hover:text-teal-800 disabled:opacity-60"
+              onClick={() => {
+                setSaving(true);
+                void downloadAllAttachments(
+                  savable.map(({ messageId, attachment }) => ({
+                    path: attachmentUrl({
+                      account,
+                      messageId,
+                      attachment,
+                      download: true,
+                    }),
+                    filename: attachment.filename,
+                  }))
+                ).finally(() => setSaving(false));
+              }}
+            >
+              {saving ? t("saving") : t("downloadAll")}
+            </button>
+          ) : null}
+        </div>
         <ul className="max-h-72 overflow-y-auto">
           {items.map(({ messageId, attachment }) => (
             <li key={`${messageId}:${attachment.attachmentId}`}>
@@ -784,7 +828,9 @@ function AttachmentPreviewBody({
       setZoom((z) => clampPreviewZoom(z * ratio));
     };
     const onWheel = (event: WheelEvent) => {
-      if (!event.ctrlKey && !event.metaKey) return;
+      // Ctrl only — what a pinch reports. Cmd and the wheel is a binding
+      // the reader has twice over already; see usePinchZoom.
+      if (!event.ctrlKey) return;
       // Ours, not the window's: without this WebKit zooms the whole page.
       event.preventDefault();
       event.stopImmediatePropagation();

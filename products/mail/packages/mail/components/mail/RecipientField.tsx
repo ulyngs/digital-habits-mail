@@ -232,9 +232,10 @@ function nameForEmail(
 /**
  * How well a contact matches the typeahead query. Lower is better; -1 = no hit.
  *
- * Own mailboxes are labeled "You", so naive `name.includes(q)` fails when the
- * user types their real name. Match each query word against the email local
- * part (split on `.` `_` `+` `-`) as well as name/org.
+ * An own mailbox carries no name of its own, so `name.includes(q)` finds
+ * nothing when the reader types their own name. Match each query word
+ * against the email local part (split on `.` `_` `+` `-`) as well as
+ * name/org.
  */
 function contactMatchScore(contact: ContactSuggestion, q: string): number {
   const email = contact.email.toLowerCase();
@@ -355,7 +356,18 @@ function selfSuggestionsFromAccounts(
     seen.add(email);
     out.push({
       email,
-      name: "You",
+      /*
+        No name, rather than the word "You".
+
+        A recipient is a person the message is going to, and "You" is not
+        anybody: it went on the chip, so a message addressed to one of the
+        reader's own mailboxes said it was going to "You" and never said
+        which of the four. The badge below already says whose mailbox this
+        is; what belongs here is a name, and where there is none the
+        address stands in — which is what every other nameless contact
+        does.
+      */
+      name: "",
       recordName: mailSay("yourMailbox"),
       source: "self",
       account: email,
@@ -1126,10 +1138,12 @@ function ListsMenu({
   lists,
   onPick,
   onEdit,
+  className,
 }: {
   lists: MailContactList[];
   onPick: (list: MailContactList) => void;
   onEdit: (list: MailContactList) => void;
+  className?: string;
 }) {
   const t = useMailT();
   const [open, setOpen] = React.useState(false);
@@ -1141,8 +1155,9 @@ function ListsMenu({
           aria-label={t("yourLists")}
           title={t("yourLists")}
           className={cn(
-            "ml-auto shrink-0 rounded-md p-1 text-stone-400 transition-colors hover:bg-stone-100 hover:text-stone-700",
-            open && "bg-stone-100 text-stone-700"
+            "shrink-0 rounded-md p-1 text-[var(--mail-chip-muted)] transition-colors hover:bg-[var(--mail-action-2-hover)] hover:text-[var(--mail-chip-fg)]",
+            open && "bg-[var(--mail-action-2-hover)] text-[var(--mail-chip-fg)]",
+            className
           )}
         >
           <Users className="h-4 w-4" aria-hidden />
@@ -1271,7 +1286,7 @@ function EmailChip({
       <PopoverTrigger asChild>
         <span
           className={cn(
-            "inline-flex cursor-pointer items-center gap-1 rounded-full bg-cream-section py-0.5 pl-2 pr-1 text-stone-700",
+            "inline-flex cursor-pointer items-center gap-1 rounded-full bg-[var(--mail-chip)] py-0.5 pl-2 pr-1 text-[var(--mail-chip-fg)]",
             variant === "inline"
               ? "text-[13px]"
               : // Block flow in a boxed field, so the spacing a flex gap
@@ -1297,7 +1312,7 @@ function EmailChip({
             data-chip-remove
             aria-label={t("removeNamed", { name: label })}
             title={t("removeNamed", { name: label })}
-            className="rounded-full px-1 text-stone-400 hover:text-red-700"
+            className="rounded-full px-1 text-[var(--mail-chip-muted)] hover:text-red-500"
             onClick={onRemove}
           >
             ×
@@ -1512,10 +1527,12 @@ export function RecipientField({
         byEmail.set(key, row);
         continue;
       }
-      // Prefer "You" labeling for own mailboxes; keep any longer name from API.
+      // Keep whichever real name there is, and no word standing in for one:
+      // an own mailbox that nothing knows a name for is shown by its
+      // address, the way every other nameless contact is.
       byEmail.set(key, {
         ...row,
-        name: row.name || prev.name || "You",
+        name: row.name || prev.name,
         recordName: row.recordName || prev.recordName || t("yourMailbox"),
         source: row.source === "self" || prev.source === "self" ? "self" : row.source,
       });
@@ -2142,6 +2159,12 @@ export function RecipientField({
             lists={lists}
             onPick={(list) => pickItem({ kind: "list", list })}
             onEdit={openListEditor}
+            /* The far right of the field, whichever way the field is laid
+               out. `ml-auto` reaches it in the inline variant, which is a
+               flex row; a boxed field is block flow, where the only way to
+               the right edge is to float — the same way "Save as list…"
+               gets to the corner above it. */
+            className={variant === "boxed" ? "float-right ml-2" : "ml-auto"}
           />
         ) : null}
         {editingList ? (

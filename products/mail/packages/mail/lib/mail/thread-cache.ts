@@ -39,7 +39,17 @@ const DB_NAME = "redd-plan-mail-thread-bodies";
 // 3: thread details gained `providerDraft`. A cached thread from before it
 // existed can never have one, and a fresh cache entry stops the refetch that
 // would find it — so the old entries have to go.
-const DB_VERSION = 3;
+//
+// 4: what a thread holds is not only what the provider said. `reply.to` is
+// worked out here, and so is the folding of a message cc'd to yourself into
+// one bubble. An entry is kept while the conversation has not changed, and a
+// conversation does not change because we changed our minds about it — so a
+// thread opened before either fix kept answering with the old one.
+//
+// The rule this is the third instance of: derived data in the cache, and a
+// freshness test that only asks about the provider. Anything worked out on
+// the way in has to be versioned on the way in too.
+const DB_VERSION = 4;
 const STORE = "bodies";
 const META_STORE = "meta";
 

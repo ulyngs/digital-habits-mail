@@ -68,9 +68,28 @@ export const FromAccountMenu = React.forwardRef<
           ref={ref}
           type="button"
           aria-label={label}
+          aria-haspopup="listbox"
+          aria-expanded={open}
+          /* A down arrow is what a closed menu is asking for, and the
+             chevron on the face of this one says so. Tabbing here from the
+             subject and pressing it was doing nothing at all.
+
+             The press is stopped as well as answered. The mail list reads
+             the arrows from the window, and it counts a control as busy
+             only if it is an input or a text box — so without this, Down
+             opened the next message behind the composer instead. */
+          onKeyDown={(event) => {
+            if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+            event.preventDefault();
+            event.stopPropagation();
+            setOpen(true);
+          }}
           className={cn(
             "inline-flex cursor-pointer items-center gap-0.5 rounded outline-none",
-            "focus-visible:ring-2 focus-visible:ring-teal-600/40",
+            /* Loud enough to find. Tab moves through From on the way to the
+               recipients, and a ring at two fifths of a teal was not
+               telling anybody where they had landed. */
+            "focus-visible:ring-2 focus-visible:ring-teal-600 focus-visible:ring-offset-1",
             variant === "inline"
               ? "text-xs text-stone-700"
               : "min-w-0 flex-1 justify-between py-0.5 text-stone-800"

@@ -67,7 +67,15 @@ export type ComposeMailDraft = DraftBase & {
   showCc: boolean;
   showBcc: boolean;
   includeSignature: boolean;
-  chatStyle: boolean;
+  /**
+   * Chat style, as a new message once asked for it.
+   *
+   * The composer no longer asks — the question is about replies quoting
+   * history, and a new message has none, so it is asked on the first reply
+   * instead. Kept optional so a draft saved by an older version still reads
+   * back; nothing sets it now.
+   */
+  chatStyle?: boolean;
 };
 
 export type MailDraft = ThreadMailDraft | ComposeMailDraft;

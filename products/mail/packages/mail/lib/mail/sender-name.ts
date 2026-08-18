@@ -2,7 +2,7 @@
  * The name on the mail we send.
  *
  * Gmail's API sends the `From` header we write, and we wrote the bare
- * address. Mail from this app therefore arrived headed `ulrik@example.org`
+ * address. Mail from this app therefore arrived headed `you@example.org`
  * while the same person's mail from Gmail's own web page arrived headed with
  * their name — in every client, for every recipient.
  *

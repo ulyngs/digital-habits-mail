@@ -169,12 +169,19 @@ suite(async () => {
     paths.join(", ")
   );
 
-  // The inbox is the list itself, so a row for it would be a second way into
-  // what is already on screen — but people do file real folders under it.
+  // The inbox used to be left out, because the list beside the rail is the
+  // inbox — which left the folders filed under it hanging off a name with
+  // nothing behind it. It is a folder on the mailbox, and it is listed as
+  // one, at the top with the others the provider made.
   check(
-    "the inbox is still not listed, though what is filed under it is",
-    !paths.includes("Inbox") && paths.includes("Inbox/Family"),
+    "the inbox is listed, and so is what is filed under it",
+    paths.includes("Inbox") && paths.includes("Inbox/Family"),
     paths.join(", ")
+  );
+  check(
+    "and it is known for what it is, so it sorts above the rest",
+    folders.find((f) => f.path === "Inbox")?.role === "inbox",
+    folders.find((f) => f.path === "Inbox")?.role
   );
 
   // ---- IMAP plumbing -------------------------------------------------------
@@ -247,8 +254,10 @@ suite(async () => {
   const danish = (await listOutlookFolders("dansk@outlook.com")).map((f) => f.path);
 
   check(
-    "a mailbox that hides wellKnownName still keeps its inbox out of the list",
-    !danish.includes("Indbakke"),
+    "a mailbox that hides wellKnownName still knows its inbox for what it is",
+    (await listOutlookFolders("dansk@outlook.com")).find(
+      (f) => f.path === "Indbakke"
+    )?.role === "inbox",
     danish.join(", ")
   );
   check(

@@ -239,6 +239,7 @@ const GMAIL_VIEW_ROWS: {
   role: MailFolderRole;
   virtual: true;
 }[] = [
+  { name: "Inbox", count: 0, role: "inbox", virtual: true },
   { name: "Archived", count: 0, role: "archive", virtual: true },
   { name: "Sent", count: 0, role: "sent", virtual: true },
   { name: "Bin", count: 0, role: "trash", virtual: true },

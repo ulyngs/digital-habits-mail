@@ -30,9 +30,45 @@ export function isWindowsShell(): boolean {
   return document.documentElement.dataset.dhOs === "windows";
 }
 
-const btn =
+/**
+ * The shape of a window button, with nothing said about what it does under
+ * the pointer.
+ *
+ * Two backgrounds asked for on one button is one background too many. Close
+ * used to carry the ordinary wash and the red both, and the red lost — not
+ * to the order they are written in, which counts for nothing, but to the
+ * order Tailwind prints them in, where the wash comes later and wins. The
+ * white glyph had no rival and arrived anyway, so close under the pointer
+ * was a white cross on a pale wash: the one button you must never mistake,
+ * and the only one you could not see.
+ */
+const btnShape =
   "flex h-full w-[46px] items-center justify-center text-[var(--mail-chrome-fg,#292524)] " +
-  "hover:bg-[var(--mail-chrome-hover,rgba(0,0,0,0.06))] focus:outline-none";
+  "focus:outline-none";
+
+/**
+ * Minimize and maximize: the chrome's own hover, and a firmer wash of the
+ * same while the button is held down.
+ */
+const btn =
+  `${btnShape} hover:bg-[var(--mail-chrome-hover,rgba(0,0,0,0.06))] ` +
+  "active:bg-[var(--mail-chrome-active,rgba(0,0,0,0.12))]";
+
+/**
+ * Close: red with a white cross, which is what every Windows window does and
+ * therefore what this one has to do. #c42b1c is the colour Windows itself
+ * uses, and the white is for the red, not for the theme — so it is spelled
+ * out here rather than taken from the chrome.
+ *
+ * Held down, the red lightens rather than darkens, which is the way round
+ * Windows does it and the way round Fluent does every pressed state: the
+ * same colour, let down a tenth towards what is behind it. Microsoft does
+ * not publish the shade — the close button is documented as taking a system
+ * colour an app cannot read — so this follows the pattern rather than
+ * claiming the number.
+ */
+const closeBtn =
+  `${btnShape} hover:bg-[#c42b1c] hover:text-white active:bg-[#c42b1c]/90`;
 
 export function WindowControls() {
   const [maximized, setMaximized] = React.useState(false);
@@ -103,7 +139,7 @@ export function WindowControls() {
       </button>
       <button
         type="button"
-        className={`${btn} hover:bg-[#c42b1c] hover:text-white`}
+        className={closeBtn}
         aria-label="Close"
         onClick={() => void currentWindow()?.close()}
       >

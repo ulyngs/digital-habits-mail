@@ -26,6 +26,32 @@ export function isCalendarAttachment(att: {
   return att.filename.toLowerCase().endsWith(".ics");
 }
 
+/**
+ * A message's files, with the same event named only once.
+ *
+ * A meeting mail carries its event twice — as the `text/calendar` part the
+ * message is, and as the `invite.ics` file hung off it — and both answer to
+ * `isCalendarAttachment`. Everything that draws an invitation takes the
+ * first calendar part and ignores the rest, so anything that counts them
+ * should count the same way, or the header says two where the message
+ * shows one.
+ *
+ * Order is kept, and every other file is kept: this only drops the second
+ * and later calendar parts.
+ */
+export function oneInvitePerMessage<
+  T extends { mimeType: string; filename: string },
+>(attachments: T[] | undefined): T[] {
+  if (!attachments?.length) return [];
+  let seen = false;
+  return attachments.filter((att) => {
+    if (!isCalendarAttachment(att)) return true;
+    if (seen) return false;
+    seen = true;
+    return true;
+  });
+}
+
 /** Walk a MIME part tree (e.g. Gmail metadata payload) for calendar parts. */
 export function mimeTreeHasCalendar(part: {
   mimeType?: string;

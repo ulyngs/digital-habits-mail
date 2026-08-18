@@ -9,6 +9,7 @@
 import assert from "node:assert/strict";
 
 import {
+  accountDropPlace,
   mergeAccountOrder,
   moveAccountBefore,
   sortAccountsByOrder,
@@ -135,4 +136,47 @@ assert.deepEqual(
 assert.deepEqual(
   mergeAccountOrder(["a@example.com", "b@example.com"], ["b@example.com", "a@example.com"]),
   ["b@example.com", "a@example.com"]
+);
+
+// --- Reading a drop off the rail --------------------------------------------
+
+/**
+ * Three mailboxes, folded, each row twenty pixels tall and the first at the
+ * top of the rail. The middles are at 10, 30 and 50.
+ */
+const SPANS = [
+  { account: "a@example.com", top: 0, bottom: 20 },
+  { account: "b@example.com", top: 20, bottom: 40 },
+  { account: "c@example.com", top: 40, bottom: 60 },
+];
+
+/** The top of the rail is the top of the list, however far up it is read. */
+assert.equal(
+  accountDropPlace(LIST, SPANS, "c@example.com", 4),
+  "a@example.com"
+);
+assert.equal(
+  accountDropPlace(LIST, SPANS, "c@example.com", -40),
+  "a@example.com"
+);
+
+/** Past the first middle is the space under the first mailbox. */
+assert.equal(
+  accountDropPlace(LIST, SPANS, "c@example.com", 12),
+  "b@example.com"
+);
+
+/** Below the last middle is the end of the list, however far below. */
+assert.equal(accountDropPlace(LIST, SPANS, "a@example.com", 52), null);
+assert.equal(accountDropPlace(LIST, SPANS, "a@example.com", 400), null);
+
+/** A place that changes nothing is no place: the rail draws no line. */
+assert.equal(accountDropPlace(LIST, SPANS, "a@example.com", 4), undefined);
+assert.equal(accountDropPlace(LIST, SPANS, "a@example.com", 12), undefined);
+assert.equal(accountDropPlace(LIST, SPANS, "c@example.com", 400), undefined);
+
+/** A rail with one mailbox has nowhere to put it. */
+assert.equal(
+  accountDropPlace(["a@example.com"], [SPANS[0]], "a@example.com", 400),
+  undefined
 );
